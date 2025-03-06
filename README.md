@@ -1,12 +1,12 @@
 # Ticket City - Technical Documentation
 
-'Ticket_City contract successfully deployed to': '0x6fd1F53799bC0312a98C36eBA030d3aA7B68264f'
+'Ticket_City contract successfully deployed to': ''
 
 ## Smart Contract Architecture
 
 ### Core Components
 
-1. `Ticket_City.sol`: Main contract handling event logic and XFI payments
+1. `Ticket_City.sol`: Main contract handling event logic and ETN payments
 2. `Ticket_NFT.sol`: Non-transferable NFT implementation for event tickets
 3. `Types.sol`: Data structures and enums
 4. `Errors.sol`: Custom error definitions
@@ -35,7 +35,7 @@ graph TD
 
 ```mermaid
 graph TD
-    A[Attendee] -->|Sends XFI| B[Ticket_City Contract]
+    A[Attendee] -->|Sends ETN| B[Ticket_City Contract]
     B -->|Validates Payment| C[Payment Validation]
     C -->|Success| D[Mint NFT Ticket]
     D -->|Updates| E[Event Records]
@@ -50,7 +50,7 @@ graph TD
 
 - Event creation with flexible ticket types (FREE/PAID)
 - Ticket categories: Regular and VIP for paid events
-- Revenue management through XFI native token
+- Revenue management through ETN native token
 - Attendance tracking and verification system
 - Tickets issued as NFTs for security
 - Automated ticket pricing based on demand (Future Implementation)
@@ -59,14 +59,14 @@ graph TD
 
 ### Payments & Refunds
 
-- Tickets purchased using XFI
-- Organizers pay a small platform service fee (30 XFI) for paid events
+- Tickets purchased using ETN
+- Organizers pay a small platform service fee (30 ETN) for paid events
 - Ticket payments held safely until the event ends
-- If an event is canceled, attendees get a refund plus a 2 XFI gas fee compensation from the organiser (Future Implementation)
+- If an event is canceled, attendees get a refund plus a 2 ETN gas fee compensation from the organiser (Future Implementation)
 
 ### Revenue Management
 
-- XFI payments held in contract
+- ETN payments held in contract
 - 60% minimum attendance requirement
 - Automated revenue release post-event
 - Manual release option for owner
@@ -81,7 +81,7 @@ graph TD
 
 ## Contract Constants
 
-- `FREE_TICKET_PRICE`: 0 XFI
+- `FREE_TICKET_PRICE`: 0 ETN
 - `MINIMUM_ATTENDANCE_RATE`: 60%
 
 ## Error Handling
@@ -97,7 +97,7 @@ graph TD
 - Node.js (v16 or higher)
 - npm or yarn
 - Git
-- Alchemy API key for CrossFi Testnet access
+- Alchemy API key for Electroneum Testnet access
 
 ### Project Setup
 
