@@ -220,4 +220,5 @@ For additional support or questions:
 3. Join Telegram community
 4. Contact @devbigeazi
 
-## License
+All tests passed
+<img width="641" alt="test" src="https://github.com/user-attachments/assets/e4904db0-bb9d-4452-8b9b-c4286bdd42e6" />
