@@ -1,6 +1,6 @@
 # Ticket City - Technical Documentation
 
-'Ticket_City contract successfully deployed to': ''
+'Ticket_City contract successfully deployed to': 0xB248609eCBf4300754a6c6D238B217957eAf16a4
 
 ## Smart Contract Architecture
 
