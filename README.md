@@ -6,6 +6,7 @@
 
 https://testnet-blockexplorer.electroneum.com/address/0x00755267E1663Dc63563A0D44caB75Cebbcfe72F#code
 
+
 ## Smart Contract Architecture
 
 ### Core Components
