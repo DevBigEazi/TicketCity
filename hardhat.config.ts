@@ -14,24 +14,23 @@ const config: HardhatUserConfig = {
       viaIR: true,
     },
   },
-
   networks: {
-    "electroneum-testnet": {
-      url: `https://rpc.ankr.com/electroneum_testnet/${ANKR_API_KEY}`,
+    electroneum: {
+      url: `https://rpc.ankr.com/electroneum/${ANKR_API_KEY}`,
       accounts: vars.has("PRIVATE_KEY") ? [vars.get("PRIVATE_KEY")] : [],
     },
   },
   etherscan: {
     apiKey: {
-      "electroneum-testnet": "empty",
+      electroneum: "empty",
     },
     customChains: [
       {
-        network: "electroneum-testnet",
-        chainId: 5201420,
+        network: "electroneum",
+        chainId: 52014,
         urls: {
-          apiURL: "https://testnet-blockexplorer.electroneum.com/api",
-          browserURL: "https://testnet-blockexplorer.electroneum.com",
+          apiURL: "https://blockexplorer.electroneum.com/api",
+          browserURL: "https://blockexplorer.electroneum.com",
         },
       },
     ],

@@ -1,10 +1,10 @@
 # Ticket City - Technical Documentation
 
-'Ticket_City contract successfully deployed to': '0x00755267E1663Dc63563A0D44caB75Cebbcfe72F'
+'Ticket_City contract successfully deployed to': '0x33fFf7699D4871a6BF06EBD5e829111D783351a9'
 
 ## Veriified link
 
-https://testnet-blockexplorer.electroneum.com/address/0x00755267E1663Dc63563A0D44caB75Cebbcfe72F#code
+https://blockexplorer.electroneum.com/address/0x33fFf7699D4871a6BF06EBD5e829111D783351a9#code
 
 ## Smart Contract Architecture
 
