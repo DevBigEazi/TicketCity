@@ -38,4 +38,20 @@ contract Ticket_NFT is ERC721, ERC721URIStorage, Ownable {
     ) public view override(ERC721, ERC721URIStorage) returns (bool) {
         return super.supportsInterface(interfaceId);
     }
+
+    function _update(
+        address to,
+        uint256 tokenId,
+        address auth
+    ) internal override returns (address) {
+        address from = _ownerOf(tokenId);
+
+        // Allow minting (from = address(0)) and burning (to = address(0))
+        // But prevent transfers between non-zero addresses
+        if (from != address(0) && to != address(0)) {
+            revert("Non-transferable: Ticket cannot be transferred");
+        }
+
+        return super._update(to, tokenId, auth);
+    }
 }
