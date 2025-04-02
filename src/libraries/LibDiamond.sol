@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+pragma solidity 0.8.26;
 
 /******************************************************************************\
 * Author: Nick Mudge <nick@perfectabstractions.com> (https://twitter.com/mudgen)
 * EIP-2535 Diamonds: https://eips.ethereum.org/EIPS/eip-2535
 /******************************************************************************/
 import {IDiamondCut} from "../interfaces/IDiamondCut.sol";
+import {LibAppStorage} from "./LibAppStorage.sol";
 
 library LibDiamond {
     error InValidFacetCutAction();
@@ -21,6 +22,7 @@ library LibDiamond {
     error NonEmptyCalldata();
     error EmptyCalldata();
     error InitCallFailed();
+
     bytes32 constant DIAMOND_STORAGE_POSITION =
         keccak256("diamond.standard.diamond.storage");
 
@@ -58,6 +60,19 @@ library LibDiamond {
         assembly {
             ds.slot := position
         }
+    }
+
+    function appStorage()
+        internal
+        pure
+        returns (LibAppStorage.AppStorage storage)
+    {
+        LibAppStorage.AppStorage storage store;
+        bytes32 position = keccak256("ticket.city.app.storage");
+        assembly {
+            store.slot := position
+        }
+        return store;
     }
 
     event OwnershipTransferred(
