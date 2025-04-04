@@ -188,7 +188,6 @@ The platform behavior is governed by several constants that can be adjusted by g
 - `FLAGGING_THRESHOLD`: 80% default
 - `WAITING_PERIOD`: 7 days after event ends
 - `STAKE_PERCENTAGE`: 30% of expected revenue
-- `MAX_ALLOWED_SCAM_EVENTS`: 1 event before blacklisting
 - `MINIMUM_FLAG_STAKE`: 0.01 ETH
 - `DISPUTE_PERIOD`: 3 days
 - `JURY_SIZE`: 5 members

@@ -2,8 +2,8 @@
 pragma solidity 0.8.26;
 
 /**
- * @title Types
- * @dev Data structures used throughout the Ticket_City contract system
+ * @title LibTypes
+ * @dev Library for type definitions used across facets
  */
 library LibTypes {
     enum TicketType {
@@ -17,35 +17,6 @@ library LibTypes {
         VIP
     }
 
-    enum FlagReason {
-        NoShow,
-        FalseAdvertising,
-        SafetyConcerns,
-        InappropriateContent,
-        Other
-    }
-
-    // Structure for flag data with evidence
-    struct FlagData {
-        FlagReason reason;
-        string evidence;
-        uint256 timestamp;
-        uint256 stake;
-    }
-
-    // Structure for dispute resolution data
-    struct DisputeResolution {
-        bool inProgress;
-        bool resolved;
-        uint8 currentTier; // 1 = Algorithm-based, 2 = Jury-based, 3 = DAO governance
-        address[] juryMembers;
-        mapping(address => bool) juryVotes;
-        uint256 positiveVotes;
-        uint256 negativeVotes;
-        string organizerEvidence;
-        uint256 resolutionTimestamp;
-    }
-
     struct EventDetails {
         string title;
         string desc;
@@ -54,12 +25,12 @@ library LibTypes {
         uint256 startDate;
         uint256 endDate;
         uint256 expectedAttendees;
+        uint256 userRegCount;
+        uint256 verifiedAttendeesCount;
         TicketType ticketType;
         PaidTicketCategory paidTicketCategory;
-        uint32 userRegCount;
-        uint32 verifiedAttendeesCount;
-        uint256 ticketFee;
         address ticketNFTAddr;
+        uint256 ticketFee;
         address organiser;
         address paymentToken;
     }
@@ -71,5 +42,10 @@ library LibTypes {
         uint256 vipTicketFee;
         address regularTicketNFT;
         address vipTicketNFT;
+    }
+
+    struct FlagData {
+        string evidence;
+        uint256 timestamp;
     }
 }

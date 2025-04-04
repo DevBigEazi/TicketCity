@@ -14,41 +14,39 @@ library LibAppStorage {
         uint256 totalEventOrganised;
         uint256 totalTicketCreated;
         uint256 totalPurchasedTicket;
+        uint256 platformRevenue;
         // All events array
         LibTypes.EventDetails[] allEvents;
-        // Mappings
+        // Mappings for events and tickets
         mapping(uint256 => LibTypes.EventDetails) events;
         mapping(address => mapping(uint256 => bool)) hasRegistered;
         mapping(address => mapping(uint256 => uint256)) organiserRevBal;
         mapping(uint256 => LibTypes.TicketTypes) eventTickets;
         mapping(address => mapping(uint256 => bool)) isVerified;
         mapping(uint256 => bool) revenueReleased;
-        mapping(address => mapping(uint256 => bool)) hasFlaggerdEvent;
+        // Flagging system
+        mapping(address => mapping(uint256 => bool)) hasFlaggedEvent;
         mapping(uint256 => uint256) totalFlagsCount;
-        mapping(uint256 => bool) flaggingPeriodEnded;
-        mapping(uint256 => uint256) stakedAmounts;
-        mapping(address => uint256) organizerSuccessfulEvents;
-        mapping(address => uint256) organizerScammedEvents;
         mapping(address => mapping(uint256 => uint256)) flaggingWeight;
         mapping(uint256 => bool) eventDisputed;
         mapping(uint256 => string) disputeEvidence;
-        mapping(address => mapping(uint256 => bytes)) attendanceProofs;
-        mapping(uint256 => uint256) damageFeesPaid;
+        mapping(uint256 => uint256) manualReviewRequestTime;
+        mapping(address => mapping(uint256 => LibTypes.FlagData)) flagData;
+        // Scam event handling
+        mapping(uint256 => bool) eventConfirmedScam;
+        mapping(uint256 => string) scamConfirmationDetails;
+        mapping(uint256 => uint256) scamConfirmationTime;
+        mapping(address => mapping(uint256 => bool)) hasClaimedRefund;
+        mapping(address => mapping(uint256 => uint256)) claimedRefundAmount;
+        // Staking and financial
+        mapping(uint256 => uint256) stakedAmounts;
+        // Organizer reputation system
+        mapping(address => uint256) organizerSuccessfulEvents;
+        mapping(address => uint256) organizerScammedEvents;
         mapping(address => bool) blacklistedOrganizers;
         // Merkle tree for attendance verification
         mapping(uint256 => bytes32) eventMerkleRoots;
         mapping(uint256 => address[]) eventAttendees;
-        // Mappings for flagging system
-        mapping(address => int256) userReputationScores;
-        mapping(address => mapping(uint256 => LibTypes.FlagData)) flagData;
-        mapping(uint256 => uint256) compensationPool;
-        mapping(address => mapping(uint256 => uint256)) flaggingStakes;
-        mapping(uint256 => address[]) eventFlaggers;
-        mapping(uint256 => uint256) verificationTimes;
-        mapping(address => mapping(uint256 => bool)) hasClaimed;
-        // Dispute resolution system
-        mapping(uint256 => LibTypes.DisputeResolution) disputeResolutions;
-        mapping(bytes32 => uint256) pendingResolutions;
         // Supported tokens system
         mapping(address => bool) supportedTokens;
         address[] supportedTokensList;

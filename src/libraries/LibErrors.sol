@@ -1,46 +1,53 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
+/**
+ * @title LibErrors
+ * @dev Library for custom error definitions used across facets
+ */
 library LibErrors {
-    error NotOwner();
-    error AddressZeroDetected();
-    error TitleAndDescriptionCannotBeEmpty();
+    // Event management errors
     error EventDoesNotExist();
-    error OnlyOrganiserCanCreateTicket();
-    error InvalidTicketFee();
+    error EventNotStarted();
+    error EventHasEnded();
+    error EventNotEnded();
+    error InvalidDates();
     error ExpectedAttendeesIsTooLow();
-    error PaidEventRequiresCategory();
-    error VipFeeTooLow();
-    error RegularTicketMustCostLessThanVipTicket();
+    error EmptyTitleOrDescription();
+    error AddressZeroDetected();
+    error RevenueAlreadyReleased();
+    error NoRevenueToRelease();
+    error TokenNotSupported();
+
+    // Ticket management errors
+    error NotEventOrganizer();
+    error NotRegisteredForEvent();
+    error AlreadyVerified();
+    error AlreadyRegistered();
+    error OrganizerIsBlacklisted();
     error FreeTicketForFreeEventOnly();
     error YouCanNotCreateThisTypeOfTicketForThisEvent();
-    error EventHasEnded();
+    error InvalidTicketFee();
     error RegularTicketsAlreadyCreated();
     error VIPTicketsAlreadyCreated();
+    error RegularTicketMustCostLessThanVipTicket();
+    error VipFeeTooLow();
     error RegularTicketsNotAvailable();
     error VIPTicketsNotAvailable();
     error InvalidTicketCategory();
-    error AlreadyRegistered();
     error RegistrationHasClosed();
-    error InvalidDates();
-    error EmptyTitleOrDescription();
-    error NotRegisteredForEvent();
-    error AlreadyVerified();
-    error NotEventOrganizer();
-    error EmptyAttendeesList();
-    error EventNotStarted();
-    error EventHasNotEnded();
-    error EventNotEnded();
-    error InsufficientAttendanceRate();
-    error NoRevenueToRelease();
-    error RevenueAlreadyReleased();
-    error OnlyOwnerCanRelease();
-    error OrganizerIsBlacklisted();
+
+    // Staking errors
     error InsufficientInitialStake();
     error InsufficientStakeAmount();
     error InsufficientAllowance();
-    error TokenAlreadySupported();
-    error TokenNotSupported();
-    error InvalidERC20Token();
+
+    // Token errors
     error OnlyOwnerAllowed();
+    error TokenAlreadySupported();
+    error InvalidERC20Token();
+
+    // Flagging errors
+    error AlreadyFlagged();
+    error FlaggingPeriodEnded();
 }

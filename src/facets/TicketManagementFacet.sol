@@ -72,6 +72,11 @@ contract TicketManagementFacet is ReentrancyGuard {
 
         LibUtils._validateEventAndOrganizer(_eventId);
 
+        // Check if organizer is blacklisted
+        if (s.blacklistedOrganizers[msg.sender]) {
+            revert LibErrors.OrganizerIsBlacklisted();
+        }
+
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
         LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
 
@@ -111,7 +116,7 @@ contract TicketManagementFacet is ReentrancyGuard {
 
         if (firstTicket) {
             // Calculate required stake based on this ticket's price
-            uint256 requiredStake = calculateRequiredStake(
+            uint256 requiredStake = LibUtils._calculateRequiredStake(
                 msg.sender,
                 eventDetails.expectedAttendees,
                 LibTypes.TicketType.PAID,
@@ -129,7 +134,9 @@ contract TicketManagementFacet is ReentrancyGuard {
             if (
                 IERC20(eventDetails.paymentToken).balanceOf(msg.sender) <
                 additionalStakeNeeded
-            ) revert LibErrors.InsufficientStakeAmount();
+            ) {
+                revert LibErrors.InsufficientStakeAmount();
+            }
 
             // Transfer the additional stake needed stake to the contract
             IERC20(eventDetails.paymentToken).safeTransferFrom(
@@ -149,8 +156,9 @@ contract TicketManagementFacet is ReentrancyGuard {
         }
 
         if (_category == LibTypes.PaidTicketCategory.REGULAR) {
-            if (tickets.hasRegularTicket)
+            if (tickets.hasRegularTicket) {
                 revert LibErrors.RegularTicketsAlreadyCreated();
+            }
             if (tickets.hasVIPTicket && _ticketFee >= tickets.vipTicketFee) {
                 revert LibErrors.RegularTicketMustCostLessThanVipTicket();
             }
@@ -177,8 +185,9 @@ contract TicketManagementFacet is ReentrancyGuard {
             );
             return success_;
         } else if (_category == LibTypes.PaidTicketCategory.VIP) {
-            if (tickets.hasVIPTicket)
+            if (tickets.hasVIPTicket) {
                 revert LibErrors.VIPTicketsAlreadyCreated();
+            }
             if (
                 tickets.hasRegularTicket &&
                 _ticketFee <= tickets.regularTicketFee
@@ -222,32 +231,48 @@ contract TicketManagementFacet is ReentrancyGuard {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
 
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
-        if (s.hasRegistered[msg.sender][_eventId])
+        if (s.hasRegistered[msg.sender][_eventId]) {
             revert LibErrors.AlreadyRegistered();
-        if (eventDetails.endDate < block.timestamp)
+        }
+        if (eventDetails.endDate < block.timestamp) {
             revert LibErrors.EventHasEnded();
-        if (eventDetails.userRegCount >= eventDetails.expectedAttendees)
+        }
+        if (eventDetails.userRegCount >= eventDetails.expectedAttendees) {
             revert LibErrors.RegistrationHasClosed();
+        }
+
+        // Check if event organizer is blacklisted
+        if (s.blacklistedOrganizers[eventDetails.organiser]) {
+            revert LibErrors.OrganizerIsBlacklisted();
+        }
+
+        // Check if event was confirmed as scam
+        if (s.eventConfirmedScam[_eventId]) {
+            revert("Event confirmed as scam, tickets unavailable");
+        }
 
         LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
         address ticketNFTAddr;
         uint256 requiredFee;
 
         if (eventDetails.ticketType == LibTypes.TicketType.FREE) {
-            if (_category != LibTypes.PaidTicketCategory.NONE)
+            if (_category != LibTypes.PaidTicketCategory.NONE) {
                 revert LibErrors.FreeTicketForFreeEventOnly();
+            }
             ticketNFTAddr = eventDetails.ticketNFTAddr;
             requiredFee = 0;
         } else {
             // Handle paid tickets
             if (_category == LibTypes.PaidTicketCategory.REGULAR) {
-                if (!tickets.hasRegularTicket)
+                if (!tickets.hasRegularTicket) {
                     revert LibErrors.RegularTicketsNotAvailable();
+                }
                 ticketNFTAddr = tickets.regularTicketNFT;
                 requiredFee = tickets.regularTicketFee;
             } else if (_category == LibTypes.PaidTicketCategory.VIP) {
-                if (!tickets.hasVIPTicket)
+                if (!tickets.hasVIPTicket) {
                     revert LibErrors.VIPTicketsNotAvailable();
+                }
                 ticketNFTAddr = tickets.vipTicketNFT;
                 requiredFee = tickets.vipTicketFee;
             } else {
@@ -299,18 +324,22 @@ contract TicketManagementFacet is ReentrancyGuard {
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Validate event status
-        if (_eventId == 0 || _eventId > s.totalEventOrganised)
+        if (_eventId == 0 || _eventId > s.totalEventOrganised) {
             revert LibErrors.EventDoesNotExist();
-        if (block.timestamp < eventDetails.startDate)
+        }
+        if (block.timestamp < eventDetails.startDate) {
             revert LibErrors.EventNotStarted();
+        }
 
         // Check if already verified
-        if (s.isVerified[msg.sender][_eventId])
+        if (s.isVerified[msg.sender][_eventId]) {
             revert LibErrors.AlreadyVerified();
+        }
 
         // Check if user has a ticket
-        if (!s.hasRegistered[msg.sender][_eventId])
+        if (!s.hasRegistered[msg.sender][_eventId]) {
             revert LibErrors.NotRegisteredForEvent();
+        }
 
         // Get the Merkle root for this event
         bytes32 merkleRoot = s.eventMerkleRoots[_eventId];
@@ -398,44 +427,7 @@ contract TicketManagementFacet is ReentrancyGuard {
         address _user,
         uint256 _eventId
     ) public view returns (string memory) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
-        if (!s.hasRegistered[_user][_eventId]) {
-            return "NONE";
-        }
-
-        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
-        LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
-
-        if (eventDetails.ticketType == LibTypes.TicketType.FREE) {
-            return "FREE";
-        }
-
-        // Check for VIP ticket
-        if (tickets.hasVIPTicket && tickets.vipTicketNFT != address(0)) {
-            try ITicket_NFT(tickets.vipTicketNFT).balanceOf(_user) returns (
-                uint256 balance
-            ) {
-                if (balance > 0) {
-                    return "VIP";
-                }
-            } catch {}
-        }
-
-        // Check for REGULAR ticket
-        if (
-            tickets.hasRegularTicket && tickets.regularTicketNFT != address(0)
-        ) {
-            try ITicket_NFT(tickets.regularTicketNFT).balanceOf(_user) returns (
-                uint256 balance
-            ) {
-                if (balance > 0) {
-                    return "REGULAR";
-                }
-            } catch {}
-        }
-
-        return "UNKNOWN";
+        return LibUtils._getUserTicketType(_user, _eventId);
     }
 
     /**
@@ -448,35 +440,24 @@ contract TicketManagementFacet is ReentrancyGuard {
         address _user,
         uint256 _eventId
     ) public view returns (bool) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
-
-        if (!tickets.hasVIPTicket || tickets.vipTicketNFT == address(0)) {
-            return false;
-        }
-
-        try ITicket_NFT(tickets.vipTicketNFT).balanceOf(_user) returns (
-            uint256 balance
-        ) {
-            return balance > 0;
-        } catch {
-            return false;
-        }
+        return LibUtils._hasVIPTicket(_user, _eventId);
     }
 
     /**
      * @dev Returns all ticket details for a user across events
      * @return eventIds Array of event IDs the user has tickets for
-     * @return ticketLibTypes Array of ticket LibTypes (FREE, REGULAR, VIP) corresponding to each event
+     * @return ticketTypes Array of ticket Types (FREE, REGULAR, VIP) corresponding to each event
      * @return verified Array indicating if attendance was verified for each event
+     * @return canClaimRefund Array indicating if user can claim refund for scam events
      */
     function getMyTickets()
         external
         view
         returns (
             uint256[] memory eventIds,
-            string[] memory ticketLibTypes,
-            bool[] memory verified
+            string[] memory ticketTypes,
+            bool[] memory verified,
+            bool[] memory canClaimRefund
         )
     {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
@@ -491,8 +472,9 @@ contract TicketManagementFacet is ReentrancyGuard {
 
         // Initialize return arrays
         eventIds = new uint256[](count);
-        ticketLibTypes = new string[](count);
+        ticketTypes = new string[](count);
         verified = new bool[](count);
+        canClaimRefund = new bool[](count);
         uint256 index = 0;
 
         // Second pass: populate arrays with ticket details
@@ -501,112 +483,18 @@ contract TicketManagementFacet is ReentrancyGuard {
                 eventIds[index] = i;
                 verified[index] = s.isVerified[msg.sender][i];
 
-                // Determine ticket type
-                LibTypes.TicketTypes storage tickets = s.eventTickets[i];
+                // Check refund eligibility (if event confirmed as scam)
+                canClaimRefund[index] =
+                    s.eventConfirmedScam[i] &&
+                    !s.hasClaimedRefund[msg.sender][i];
 
-                if (s.events[i].ticketType == LibTypes.TicketType.FREE) {
-                    ticketLibTypes[index] = "FREE";
-                } else {
-                    // Check if user has VIP ticket
-                    if (
-                        tickets.hasVIPTicket &&
-                        tickets.vipTicketNFT != address(0)
-                    ) {
-                        try
-                            ITicket_NFT(tickets.vipTicketNFT).balanceOf(
-                                msg.sender
-                            )
-                        returns (uint256 balance) {
-                            if (balance > 0) {
-                                ticketLibTypes[index] = "VIP";
-                                index++;
-                                continue;
-                            }
-                        } catch {}
-                    }
-
-                    // Check if user has REGULAR ticket
-                    if (
-                        tickets.hasRegularTicket &&
-                        tickets.regularTicketNFT != address(0)
-                    ) {
-                        try
-                            ITicket_NFT(tickets.regularTicketNFT).balanceOf(
-                                msg.sender
-                            )
-                        returns (uint256 balance) {
-                            if (balance > 0) {
-                                ticketLibTypes[index] = "REGULAR";
-                                index++;
-                                continue;
-                            }
-                        } catch {}
-                    }
-
-                    // If we couldn't determine the exact type but user is registered
-                    ticketLibTypes[index] = "UNKNOWN";
-                }
+                // Determine ticket type using the utility function
+                ticketTypes[index] = LibUtils._getUserTicketType(msg.sender, i);
 
                 index++;
             }
         }
 
-        return (eventIds, ticketLibTypes, verified);
+        return (eventIds, ticketTypes, verified, canClaimRefund);
     }
-
-    /**
-     * @dev Calculate required stake based on organizer reputation and event details
-     * @param _organiser The address of the event organizer
-     * @param _expectedAttendees Expected number of attendees
-     * @param _ticketType Type of event (FREE or PAID)
-     * @param _estimatedTicketFee Estimated ticket fee (0 for FREE events)
-     * @return Required stake amount
-     */
-    function calculateRequiredStake(
-        address _organiser,
-        uint256 _expectedAttendees,
-        LibTypes.TicketType _ticketType,
-        uint256 _estimatedTicketFee
-    ) public view returns (uint256) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
-        // Free events have no stake requirement
-        if (_ticketType == LibTypes.TicketType.FREE) {
-            return 0;
-        }
-
-        // For paid events, calculate stake based on expected revenue
-        uint256 expectedRevenue = _expectedAttendees * _estimatedTicketFee;
-        uint256 baseStakePercentage = LibConstants.STAKE_PERCENTAGE;
-
-        // Apply penalties for new organizers or those with scam history
-        if (s.organizerSuccessfulEvents[_organiser] == 0) {
-            baseStakePercentage += LibConstants.NEW_ORGANIZER_PENALTY;
-        }
-
-        // Apply discounts for organizers with good reputation
-        uint256 successEvents = s.organizerSuccessfulEvents[_organiser];
-        uint256 reputationDiscount = 0;
-
-        if (successEvents > 0) {
-            reputationDiscount =
-                successEvents *
-                LibConstants.REPUTATION_DISCOUNT_FACTOR;
-            if (reputationDiscount > LibConstants.MAX_REPUTATION_DISCOUNT) {
-                reputationDiscount = LibConstants.MAX_REPUTATION_DISCOUNT;
-            }
-        }
-
-        // Calculate final stake percentage (ensure it doesn't go below minimum)
-        uint256 finalStakePercentage = 0;
-        if (baseStakePercentage > reputationDiscount) {
-            finalStakePercentage = baseStakePercentage - reputationDiscount;
-        } else {
-            finalStakePercentage = 5; // Minimum 5% stake even for best organizers
-        }
-
-        return (expectedRevenue * finalStakePercentage) / 100;
-    }
-
-  
 }

@@ -10,12 +10,10 @@ contract Ticket_NFT is ERC721, ERC721URIStorage, Ownable {
     uint256 private _nextTokenId;
     string private ticketUri;
 
-    constructor(
-        address _initialOwner,
-        string memory _uri,
-        string memory _ticketName,
-        string memory _ticketSymbol
-    ) ERC721(_ticketName, _ticketSymbol) Ownable(_initialOwner) {
+    constructor(address _initialOwner, string memory _uri, string memory _ticketName, string memory _ticketSymbol)
+        ERC721(_ticketName, _ticketSymbol)
+        Ownable(_initialOwner)
+    {
         ticketUri = _uri;
     }
 
@@ -27,23 +25,15 @@ contract Ticket_NFT is ERC721, ERC721URIStorage, Ownable {
     }
 
     // The following functions are overrides required by Solidity.
-    function tokenURI(
-        uint256 tokenId
-    ) public view override(ERC721, ERC721URIStorage) returns (string memory) {
+    function tokenURI(uint256 tokenId) public view override(ERC721, ERC721URIStorage) returns (string memory) {
         return super.tokenURI(tokenId);
     }
 
-    function supportsInterface(
-        bytes4 interfaceId
-    ) public view override(ERC721, ERC721URIStorage) returns (bool) {
+    function supportsInterface(bytes4 interfaceId) public view override(ERC721, ERC721URIStorage) returns (bool) {
         return super.supportsInterface(interfaceId);
     }
 
-    function _update(
-        address to,
-        uint256 tokenId,
-        address auth
-    ) internal override returns (address) {
+    function _update(address to, uint256 tokenId, address auth) internal override returns (address) {
         address from = _ownerOf(tokenId);
 
         // Allow minting (from = address(0)) and burning (to = address(0))
