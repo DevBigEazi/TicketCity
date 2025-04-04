@@ -83,13 +83,13 @@ function createEvent(
     uint256 _startDate,
     uint256 _endDate,
     uint256 _expectedAttendees,
-    Types.TicketType _ticketType
+    LibTypes.TicketType _ticketType
 ) external payable returns (uint256)
 ```
 
 ### Ticketing System
 
-Once an event is created, organizers can define different ticket types:
+Once an event is created, organizers can define different ticket LibTypes:
 
 - **FREE tickets**: No cost to attendees
 - **REGULAR tickets**: Standard paid admission
@@ -100,7 +100,7 @@ Each ticket is represented as an NFT, providing verifiable ownership and prevent
 ```solidity
 function createTicket(
     uint256 _eventId,
-    Types.PaidTicketCategory _category,
+    LibTypes.PaidTicketCategory _category,
     uint256 _ticketFee,
     string memory _ticketUri
 ) external payable
@@ -175,6 +175,7 @@ function verifyAttendanceWithProof(
 ```
 
 The attendance rate is critical for:
+
 - Determining event success
 - Affecting organizer reputation
 - Factoring into dispute resolution
@@ -200,7 +201,7 @@ The platform behavior is governed by several constants that can be adjusted by g
 ### For Event Organizers
 
 1. **Create an event** by providing details and paying an initial stake
-2. **Create ticket types** for the event (FREE, REGULAR, VIP)
+2. **Create ticket LibTypes** for the event (FREE, REGULAR, VIP)
 3. **Monitor attendance** as the event progresses
 4. **Verify attendees** at the venue
 5. **Release revenue** after the event concludes successfully or dispute flags if necessary
@@ -230,7 +231,7 @@ The platform implements several security measures:
 - Validation checks for all inputs
 - Economic incentives aligned with honest behavior
 - Timelocks and waiting periods before sensitive actions
-- Error handling with custom error types
+- Error handling with custom error LibTypes
 - Separate dispute resolution tiers with different mechanisms
 
 ## Future Extensions

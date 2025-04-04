@@ -5,16 +5,22 @@ import "../libraries/LibAppStorage.sol";
 import "../libraries/LibDiamond.sol";
 import "../libraries/LibConstants.sol";
 import "../libraries/LibEvents.sol";
-import "../libraries/Types.sol";
-import "../libraries/Errors.sol";
+import "../libraries/LibTypes.sol";
+import "../libraries/LibErrors.sol";
+import "../libraries/LibUtils.sol";
+import "../interfaces/IExtendedERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /**
  * @title EventManagementFacet
  * @dev Handles all event creation and management functionality
  */
-contract EventManagementFacet {
-    using Types for *;
-    using Errors for *;
+contract EventManagementFacet is ReentrancyGuard {
+    using LibTypes for *;
+    using LibErrors for *;
+    using SafeERC20 for IERC20;
 
     /**
      * @dev Creates a new event with staking requirement
@@ -28,6 +34,7 @@ contract EventManagementFacet {
      * @param _ticketType Type of tickets for the event (FREE or PAID)
      * @return The ID of the newly created event
      */
+
     function createEvent(
         string memory _title,
         string memory _desc,
@@ -36,32 +43,62 @@ contract EventManagementFacet {
         uint256 _startDate,
         uint256 _endDate,
         uint256 _expectedAttendees,
-        Types.TicketType _ticketType
-    ) external payable returns (uint256) {
+        LibTypes.TicketType _ticketType,
+        IERC20 _paymentToken
+    ) external nonReentrant returns (uint256) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        
+
         // Input validation
-        if (msg.sender == address(0)) revert Errors.AddressZeroDetected();
+        if (msg.sender == address(0)) revert LibErrors.AddressZeroDetected();
         if (bytes(_title).length == 0 || bytes(_desc).length == 0)
-            revert Errors.EmptyTitleOrDescription();
+            revert LibErrors.EmptyTitleOrDescription();
         if (_startDate >= _endDate || _startDate < block.timestamp)
-            revert Errors.InvalidDates();
-        if (_expectedAttendees == 0) revert Errors.ExpectedAttendeesIsTooLow();
+            revert LibErrors.InvalidDates();
+        if (_expectedAttendees <= 5)
+            revert LibErrors.ExpectedAttendeesIsTooLow();
 
         // Check if organizer is blacklisted
-        require(!s.blacklistedOrganizers[msg.sender], "Organizer is blacklisted");
+        if (s.blacklistedOrganizers[msg.sender] == true)
+            revert LibErrors.OrganizerIsBlacklisted();
+
+        // Check if the token is supported
+        if (_ticketType == LibTypes.TicketType.PAID) {
+            if (
+                address(_paymentToken) != address(0) &&
+                !s.supportedTokens[address(_paymentToken)]
+            ) revert LibErrors.TokenNotSupported();
+        }
 
         // For PAID events, we'll collect a minimal initial stake
         uint256 initialStake = 0;
-        if (_ticketType == Types.TicketType.PAID) {
-            initialStake = 0.001 ether; // Minimal placeholder stake
-            require(msg.value >= initialStake, "Insufficient initial stake");
+        if (_ticketType == LibTypes.TicketType.PAID) {
+            initialStake = 10e6; // $10 Minimal placeholder stake
+            // Check if the payment token is valid
+            if (_paymentToken.balanceOf(msg.sender) < initialStake)
+                revert LibErrors.InsufficientInitialStake();
+            if (
+                _paymentToken.allowance(msg.sender, address(this)) <
+                initialStake
+            ) revert LibErrors.InsufficientAllowance();
+
+            // Transfer the initial stake to the contract
+            _paymentToken.safeTransferFrom(
+                msg.sender,
+                address(this),
+                initialStake
+            );
+
+            emit IExtendedERC20.Transfer(
+                msg.sender,
+                address(this),
+                initialStake
+            );
         }
 
         uint256 eventId = s.totalEventOrganised + 1;
         s.totalEventOrganised = eventId;
 
-        Types.EventDetails storage eventDetails = s.events[eventId];
+        LibTypes.EventDetails storage eventDetails = s.events[eventId];
         eventDetails.title = _title;
         eventDetails.desc = _desc;
         eventDetails.imageUri = _imageUri;
@@ -70,9 +107,10 @@ contract EventManagementFacet {
         eventDetails.endDate = _endDate;
         eventDetails.expectedAttendees = _expectedAttendees;
         eventDetails.ticketType = _ticketType;
+        eventDetails.paymentToken = address(_paymentToken);
 
         // Store initial stake amount
-        s.stakedAmounts[eventId] = msg.value;
+        s.stakedAmounts[eventId] = initialStake;
 
         // Initialize other values to zero
         eventDetails.userRegCount = 0;
@@ -80,70 +118,42 @@ contract EventManagementFacet {
         eventDetails.ticketFee = 0;
         eventDetails.ticketNFTAddr = address(0);
 
-        if (_ticketType == Types.TicketType.PAID) {
-            eventDetails.paidTicketCategory = Types.PaidTicketCategory.NONE;
+        if (_ticketType == LibTypes.TicketType.PAID) {
+            eventDetails.paidTicketCategory = LibTypes.PaidTicketCategory.NONE;
         } else {
-            eventDetails.paidTicketCategory = Types.PaidTicketCategory.NONE;
+            eventDetails.paidTicketCategory = LibTypes.PaidTicketCategory.NONE;
         }
 
         eventDetails.organiser = msg.sender;
         s.allEvents.push(eventDetails);
 
-        emit LibEvents.EventOrganized(msg.sender, eventId, _ticketType, msg.value);
+        emit LibEvents.EventOrganized(
+            msg.sender,
+            address(_paymentToken),
+            eventId,
+            _ticketType,
+            initialStake
+        );
 
         return eventId;
     }
 
     /**
-     * @dev Calculate required stake based on organizer reputation and event details
-     * @param _organiser The address of the event organizer
-     * @param _expectedAttendees Expected number of attendees
-     * @param _ticketType Type of event (FREE or PAID)
-     * @param _estimatedTicketFee Estimated ticket fee (0 for FREE events)
-     * @return Required stake amount
+     * @dev Set the Merkle root for an event's attendees
+     * @param _eventId The ID of the event
+     * @param _merkleRoot The Merkle root hash of all attendees
      */
-    function calculateRequiredStake(
-        address _organiser,
-        uint256 _expectedAttendees,
-        Types.TicketType _ticketType,
-        uint256 _estimatedTicketFee
-    ) public view returns (uint256) {
+    function setEventMerkleRoot(
+        uint256 _eventId,
+        bytes32 _merkleRoot
+    ) external {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        
-        // Free events have no stake requirement
-        if (_ticketType == Types.TicketType.FREE) {
-            return 0;
-        }
 
-        // For paid events, calculate stake based on expected revenue
-        uint256 expectedRevenue = _expectedAttendees * _estimatedTicketFee;
-        uint256 baseStakePercentage = LibConstants.STAKE_PERCENTAGE;
+        LibUtils._validateEventAndOrganizer(_eventId);
 
-        // Apply penalties for new organizers or those with scam history
-        if (s.organizerSuccessfulEvents[_organiser] == 0) {
-            baseStakePercentage += LibConstants.NEW_ORGANIZER_PENALTY;
-        }
+        s.eventMerkleRoots[_eventId] = _merkleRoot;
 
-        // Apply discounts for organizers with good reputation
-        uint256 successEvents = s.organizerSuccessfulEvents[_organiser];
-        uint256 reputationDiscount = 0;
-
-        if (successEvents > 0) {
-            reputationDiscount = successEvents * LibConstants.REPUTATION_DISCOUNT_FACTOR;
-            if (reputationDiscount > LibConstants.MAX_REPUTATION_DISCOUNT) {
-                reputationDiscount = LibConstants.MAX_REPUTATION_DISCOUNT;
-            }
-        }
-
-        // Calculate final stake percentage (ensure it doesn't go below minimum)
-        uint256 finalStakePercentage = 0;
-        if (baseStakePercentage > reputationDiscount) {
-            finalStakePercentage = baseStakePercentage - reputationDiscount;
-        } else {
-            finalStakePercentage = 5; // Minimum 5% stake even for best organizers
-        }
-
-        return (expectedRevenue * finalStakePercentage) / 100;
+        emit LibEvents.MerkleRootSet(_eventId, _merkleRoot);
     }
 
     /**
@@ -153,7 +163,7 @@ contract EventManagementFacet {
      */
     function getEvent(
         uint256 _eventId
-    ) public view returns (Types.EventDetails memory eventDetails) {
+    ) public view returns (LibTypes.EventDetails memory eventDetails) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         return eventDetails = s.events[_eventId];
     }
@@ -167,8 +177,8 @@ contract EventManagementFacet {
         address _user
     ) external view returns (uint256[] memory) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        
-        if (_user == address(0)) revert Errors.AddressZeroDetected();
+
+        if (_user == address(0)) revert LibErrors.AddressZeroDetected();
 
         // First get all events by the user
         uint256 eventCount = 0;
@@ -180,7 +190,7 @@ contract EventManagementFacet {
             }
         }
 
-        // Create temporary array to hold all user's event IDs
+        // temporary array to hold all user's event IDs
         uint256[] memory allUserEvents = new uint256[](eventCount);
         uint256 userEventIndex = 0;
 
@@ -196,16 +206,16 @@ contract EventManagementFacet {
         uint256 noTicketCount = 0;
         for (uint256 i = 0; i < allUserEvents.length; i++) {
             uint256 eventId = allUserEvents[i];
-            Types.EventDetails memory eventData = s.events[eventId];
+            LibTypes.EventDetails memory eventData = s.events[eventId];
 
             bool hasTickets = false;
 
-            if (eventData.ticketType == Types.TicketType.FREE) {
+            if (eventData.ticketType == LibTypes.TicketType.FREE) {
                 // For FREE events, check if ticketNFTAddr is not zero address
                 hasTickets = eventData.ticketNFTAddr != address(0);
-            } else if (eventData.ticketType == Types.TicketType.PAID) {
+            } else if (eventData.ticketType == LibTypes.TicketType.PAID) {
                 // For PAID events, check if either regular or VIP tickets exist
-                Types.TicketTypes memory tickets = s.eventTickets[eventId];
+                LibTypes.TicketTypes memory tickets = s.eventTickets[eventId];
                 hasTickets = tickets.hasRegularTicket || tickets.hasVIPTicket;
             }
 
@@ -221,14 +231,14 @@ contract EventManagementFacet {
         uint256 resultIndex = 0;
         for (uint256 i = 0; i < allUserEvents.length; i++) {
             uint256 eventId = allUserEvents[i];
-            Types.EventDetails memory eventData = s.events[eventId];
+            LibTypes.EventDetails memory eventData = s.events[eventId];
 
             bool hasTickets = false;
 
-            if (eventData.ticketType == Types.TicketType.FREE) {
+            if (eventData.ticketType == LibTypes.TicketType.FREE) {
                 hasTickets = eventData.ticketNFTAddr != address(0);
-            } else if (eventData.ticketType == Types.TicketType.PAID) {
-                Types.TicketTypes memory tickets = s.eventTickets[eventId];
+            } else if (eventData.ticketType == LibTypes.TicketType.PAID) {
+                LibTypes.TicketTypes memory tickets = s.eventTickets[eventId];
                 hasTickets = tickets.hasRegularTicket || tickets.hasVIPTicket;
             }
 
@@ -250,8 +260,8 @@ contract EventManagementFacet {
         address _user
     ) external view returns (uint256[] memory) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        
-        if (_user == address(0)) revert Errors.AddressZeroDetected();
+
+        if (_user == address(0)) revert LibErrors.AddressZeroDetected();
 
         uint256 count = 0;
 
@@ -259,16 +269,18 @@ contract EventManagementFacet {
         for (uint256 i = 1; i <= s.totalEventOrganised; i++) {
             if (s.events[i].organiser == _user) {
                 // Check if this event has tickets
-                Types.EventDetails memory eventData = s.events[i];
+                LibTypes.EventDetails memory eventData = s.events[i];
                 bool hasTickets = false;
 
-                if (eventData.ticketType == Types.TicketType.FREE) {
+                if (eventData.ticketType == LibTypes.TicketType.FREE) {
                     // For FREE events, check if ticketNFTAddr is not zero address
                     hasTickets = eventData.ticketNFTAddr != address(0);
-                } else if (eventData.ticketType == Types.TicketType.PAID) {
+                } else if (eventData.ticketType == LibTypes.TicketType.PAID) {
                     // For PAID events, check if either regular or VIP tickets exist
-                    Types.TicketTypes memory tickets = s.eventTickets[i];
-                    hasTickets = tickets.hasRegularTicket || tickets.hasVIPTicket;
+                    LibTypes.TicketTypes memory tickets = s.eventTickets[i];
+                    hasTickets =
+                        tickets.hasRegularTicket ||
+                        tickets.hasVIPTicket;
                 }
 
                 if (hasTickets) {
@@ -285,16 +297,18 @@ contract EventManagementFacet {
         for (uint256 i = 1; i <= s.totalEventOrganised; i++) {
             if (s.events[i].organiser == _user) {
                 // Check if this event has tickets
-                Types.EventDetails memory eventData = s.events[i];
+                LibTypes.EventDetails memory eventData = s.events[i];
                 bool hasTickets = false;
 
-                if (eventData.ticketType == Types.TicketType.FREE) {
+                if (eventData.ticketType == LibTypes.TicketType.FREE) {
                     // For FREE events, check if ticketNFTAddr is not zero address
                     hasTickets = eventData.ticketNFTAddr != address(0);
-                } else if (eventData.ticketType == Types.TicketType.PAID) {
+                } else if (eventData.ticketType == LibTypes.TicketType.PAID) {
                     // For PAID events, check if either regular or VIP tickets exist
-                    Types.TicketTypes memory tickets = s.eventTickets[i];
-                    hasTickets = tickets.hasRegularTicket || tickets.hasVIPTicket;
+                    LibTypes.TicketTypes memory tickets = s.eventTickets[i];
+                    hasTickets =
+                        tickets.hasRegularTicket ||
+                        tickets.hasVIPTicket;
                 }
 
                 if (hasTickets) {
@@ -313,19 +327,19 @@ contract EventManagementFacet {
      */
     function getAllValidEvents() external view returns (uint256[] memory) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        
+
         uint256 count = 0;
 
         // First pass: count valid events
         for (uint256 i = 1; i <= s.totalEventOrganised; i++) {
-            Types.EventDetails storage eventDetails = s.events[i];
-            Types.TicketTypes storage tickets = s.eventTickets[i];
+            LibTypes.EventDetails storage eventDetails = s.events[i];
+            LibTypes.TicketTypes storage tickets = s.eventTickets[i];
 
             bool hasTicket = false;
 
             // Check if event has tickets
             if (
-                eventDetails.ticketType == Types.TicketType.FREE &&
+                eventDetails.ticketType == LibTypes.TicketType.FREE &&
                 eventDetails.ticketNFTAddr != address(0)
             ) {
                 hasTicket = true;
@@ -343,14 +357,14 @@ contract EventManagementFacet {
         uint256 index = 0;
 
         for (uint256 i = 1; i <= s.totalEventOrganised; i++) {
-            Types.EventDetails storage eventDetails = s.events[i];
-            Types.TicketTypes storage tickets = s.eventTickets[i];
+            LibTypes.EventDetails storage eventDetails = s.events[i];
+            LibTypes.TicketTypes storage tickets = s.eventTickets[i];
 
             bool hasTicket = false;
 
             // Check if event has tickets
             if (
-                eventDetails.ticketType == Types.TicketType.FREE &&
+                eventDetails.ticketType == LibTypes.TicketType.FREE &&
                 eventDetails.ticketNFTAddr != address(0)
             ) {
                 hasTicket = true;
@@ -367,13 +381,4 @@ contract EventManagementFacet {
         return validEvents;
     }
 
-    function _validateEventAndOrganizer(uint256 _eventId) internal view {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        
-        if (msg.sender == address(0)) revert Errors.AddressZeroDetected();
-        if (_eventId == 0 || _eventId > s.totalEventOrganised)
-            revert Errors.EventDoesNotExist();
-        if (msg.sender != s.events[_eventId].organiser)
-            revert Errors.OnlyOrganiserCanCreateTicket();
-    }
 }

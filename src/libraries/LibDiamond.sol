@@ -68,9 +68,9 @@ library LibDiamond {
         returns (LibAppStorage.AppStorage storage)
     {
         LibAppStorage.AppStorage storage store;
-        bytes32 position = keccak256("ticket.city.app.storage");
+        // bytes32 position = keccak256("ticket.city.app.storage");
         assembly {
-            store.slot := position
+            store.slot := 0
         }
         return store;
     }

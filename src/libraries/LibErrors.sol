@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.26;
 
-library Errors {
+library LibErrors {
     error NotOwner();
     error AddressZeroDetected();
     error TitleAndDescriptionCannotBeEmpty();
@@ -15,6 +15,11 @@ library Errors {
     error FreeTicketForFreeEventOnly();
     error YouCanNotCreateThisTypeOfTicketForThisEvent();
     error EventHasEnded();
+    error RegularTicketsAlreadyCreated();
+    error VIPTicketsAlreadyCreated();
+    error RegularTicketsNotAvailable();
+    error VIPTicketsNotAvailable();
+    error InvalidTicketCategory();
     error AlreadyRegistered();
     error RegistrationHasClosed();
     error InvalidDates();
@@ -30,4 +35,12 @@ library Errors {
     error NoRevenueToRelease();
     error RevenueAlreadyReleased();
     error OnlyOwnerCanRelease();
+    error OrganizerIsBlacklisted();
+    error InsufficientInitialStake();
+    error InsufficientStakeAmount();
+    error InsufficientAllowance();
+    error TokenAlreadySupported();
+    error TokenNotSupported();
+    error InvalidERC20Token();
+    error OnlyOwnerAllowed();
 }

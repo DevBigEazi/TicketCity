@@ -4,8 +4,8 @@ pragma solidity 0.8.26;
 import "../libraries/LibAppStorage.sol";
 import "../libraries/LibConstants.sol";
 import "../libraries/LibEvents.sol";
-import "../libraries/Types.sol";
-import "../libraries/Errors.sol";
+import "../libraries/LibTypes.sol";
+import "../libraries/LibErrors.sol";
 import "../interfaces/ITicket_NFT.sol";
 import "../libraries/LibDiamond.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -16,8 +16,8 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  */
 contract FlaggingFacet is ReentrancyGuard {
     using LibAppStorage for LibAppStorage.AppStorage;
-    using Types for *;
-    using Errors for *;
+    using LibTypes for *;
+    using LibErrors for *;
 
     /**
      * @dev Calculate reputation factor for flag weighting
@@ -78,7 +78,7 @@ contract FlaggingFacet is ReentrancyGuard {
         uint256 _eventId
     ) internal view returns (address[] memory) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.EventDetails storage eventDetails = s.events[_eventId];
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
         uint256 count = eventDetails.userRegCount;
 
         // This is a simplified implementation - in production, you'd need
@@ -142,10 +142,10 @@ contract FlaggingFacet is ReentrancyGuard {
             return "NONE";
         }
 
-        Types.EventDetails storage eventDetails = s.events[_eventId];
-        Types.TicketTypes storage tickets = s.eventTickets[_eventId];
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
+        LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
 
-        if (eventDetails.ticketType == Types.TicketType.FREE) {
+        if (eventDetails.ticketType == LibTypes.TicketType.FREE) {
             return "FREE";
         }
 
@@ -188,7 +188,7 @@ contract FlaggingFacet is ReentrancyGuard {
         string calldata _evidence
     ) external payable nonReentrant {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.EventDetails storage eventDetails = s.events[_eventId];
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Basic validation
         require(
@@ -225,13 +225,13 @@ contract FlaggingFacet is ReentrancyGuard {
 
         // Validate reason code
         require(
-            _reason <= uint8(Types.FlagReason.Other),
+            _reason <= uint8(LibTypes.FlagReason.Other),
             "Invalid reason code"
         );
 
         // Store flag data
-        Types.FlagData storage newFlag = s.flagData[msg.sender][_eventId];
-        newFlag.reason = Types.FlagReason(_reason);
+        LibTypes.FlagData storage newFlag = s.flagData[msg.sender][_eventId];
+        newFlag.reason = LibTypes.FlagReason(_reason);
         newFlag.evidence = _evidence;
         newFlag.timestamp = block.timestamp;
         newFlag.stake = msg.value;
@@ -274,11 +274,11 @@ contract FlaggingFacet is ReentrancyGuard {
      */
     function flagEvent(uint256 _eventId) external {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.EventDetails storage eventDetails = s.events[_eventId];
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Check if event exists and has ended
         if (_eventId == 0 || _eventId > s.totalEventOrganised)
-            revert Errors.EventDoesNotExist();
+            revert LibErrors.EventDoesNotExist();
         if (block.timestamp <= eventDetails.endDate)
             revert("Event has not ended yet");
 
@@ -340,7 +340,7 @@ contract FlaggingFacet is ReentrancyGuard {
         string calldata _evidence
     ) external {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.EventDetails storage eventDetails = s.events[_eventId];
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Validation
         require(
@@ -362,7 +362,7 @@ contract FlaggingFacet is ReentrancyGuard {
         s.disputeEvidence[_eventId] = _evidence;
 
         // Initialize dispute resolution
-        Types.DisputeResolution storage resolution = s.disputeResolutions[
+        LibTypes.DisputeResolution storage resolution = s.disputeResolutions[
             _eventId
         ];
         resolution.inProgress = true;
@@ -383,8 +383,8 @@ contract FlaggingFacet is ReentrancyGuard {
      */
     function _resolveDisputeTier1(uint256 _eventId) internal {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.EventDetails storage eventDetails = s.events[_eventId];
-        Types.DisputeResolution storage resolution = s.disputeResolutions[
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
+        LibTypes.DisputeResolution storage resolution = s.disputeResolutions[
             _eventId
         ];
 
@@ -434,7 +434,7 @@ contract FlaggingFacet is ReentrancyGuard {
      */
     function _selectJury(uint256 _eventId) internal {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.DisputeResolution storage resolution = s.disputeResolutions[
+        LibTypes.DisputeResolution storage resolution = s.disputeResolutions[
             _eventId
         ];
 
@@ -472,7 +472,7 @@ contract FlaggingFacet is ReentrancyGuard {
      */
     function submitJuryVote(uint256 _eventId, bool _supportOrganizer) external {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.DisputeResolution storage resolution = s.disputeResolutions[
+        LibTypes.DisputeResolution storage resolution = s.disputeResolutions[
             _eventId
         ];
 
@@ -518,7 +518,7 @@ contract FlaggingFacet is ReentrancyGuard {
      */
     function _finalizeJuryVoting(uint256 _eventId) internal {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.DisputeResolution storage resolution = s.disputeResolutions[
+        LibTypes.DisputeResolution storage resolution = s.disputeResolutions[
             _eventId
         ];
 
@@ -547,7 +547,7 @@ contract FlaggingFacet is ReentrancyGuard {
      */
     function _resolveInFavorOfOrganizer(uint256 _eventId) internal {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.EventDetails storage eventDetails = s.events[_eventId];
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Return stakes to event organizer
         uint256 totalCompensation = s.compensationPool[_eventId];
@@ -594,7 +594,7 @@ contract FlaggingFacet is ReentrancyGuard {
      */
     function _resolveInFavorOfFlaggers(uint256 _eventId) internal {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.EventDetails storage eventDetails = s.events[_eventId];
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Return stakes to flaggers and increase their reputation
         address[] memory flaggers = s.eventFlaggers[_eventId];
@@ -680,7 +680,7 @@ contract FlaggingFacet is ReentrancyGuard {
             "Already claimed compensation"
         );
 
-        Types.DisputeResolution storage resolution = s.disputeResolutions[
+        LibTypes.DisputeResolution storage resolution = s.disputeResolutions[
             _eventId
         ];
         require(resolution.resolved, "Dispute not resolved yet");
@@ -732,7 +732,9 @@ contract FlaggingFacet is ReentrancyGuard {
                     msg.sender,
                     _eventId
                 );
-                Types.TicketTypes storage tickets = s.eventTickets[_eventId];
+                LibTypes.TicketTypes storage tickets = s.eventTickets[
+                    _eventId
+                ];
 
                 if (
                     keccak256(abi.encodePacked(ticketType)) ==
@@ -771,7 +773,7 @@ contract FlaggingFacet is ReentrancyGuard {
         uint256 _eventId
     ) public view returns (bool isFraudulent) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.DisputeResolution storage resolution = s.disputeResolutions[
+        LibTypes.DisputeResolution storage resolution = s.disputeResolutions[
             _eventId
         ];
 
@@ -811,7 +813,7 @@ contract FlaggingFacet is ReentrancyGuard {
         uint256 _eventId
     ) public view returns (uint256) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.EventDetails storage eventDetails = s.events[_eventId];
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Time since event ended
         uint256 timeElapsed = block.timestamp - eventDetails.endDate;
@@ -860,11 +862,11 @@ contract FlaggingFacet is ReentrancyGuard {
         address[] calldata _buyers
     ) external nonReentrant {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.EventDetails storage eventDetails = s.events[_eventId];
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Verify event and flagging status
         if (_eventId == 0 || _eventId > s.totalEventOrganised)
-            revert Errors.EventDoesNotExist();
+            revert LibErrors.EventDoesNotExist();
 
         // Get current flagging threshold based on time elapsed
         uint256 currentThreshold = getFlaggingThreshold(_eventId);
@@ -895,9 +897,9 @@ contract FlaggingFacet is ReentrancyGuard {
 
             // Determine refund amount based on ticket type
             uint256 refundAmount = 0;
-            Types.TicketTypes storage tickets = s.eventTickets[_eventId];
+            LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
 
-            if (eventDetails.ticketType == Types.TicketType.PAID) {
+            if (eventDetails.ticketType == LibTypes.TicketType.PAID) {
                 // Check for VIP ticket
                 if (hasVIPTicket(buyer, _eventId)) {
                     refundAmount = tickets.vipTicketFee;
@@ -971,7 +973,7 @@ contract FlaggingFacet is ReentrancyGuard {
         uint256 _eventId
     ) public view returns (bool) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.TicketTypes storage tickets = s.eventTickets[_eventId];
+        LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
 
         if (!tickets.hasVIPTicket || tickets.vipTicketNFT == address(0)) {
             return false;
@@ -996,20 +998,20 @@ contract FlaggingFacet is ReentrancyGuard {
         bytes memory _proof
     ) external {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.EventDetails storage eventDetails = s.events[_eventId];
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Validate if event exist or has started
         if (_eventId == 0 || _eventId > s.totalEventOrganised)
-            revert Errors.EventDoesNotExist();
+            revert LibErrors.EventDoesNotExist();
         if (block.timestamp < eventDetails.startDate)
-            revert Errors.EventNotStarted();
+            revert LibErrors.EventNotStarted();
 
         // Check if attendee is registered
         if (!s.hasRegistered[msg.sender][_eventId])
-            revert Errors.NotRegisteredForEvent();
+            revert LibErrors.NotRegisteredForEvent();
 
         // Check if already verified
-        if (s.isVerified[msg.sender][_eventId]) revert Errors.AlreadyVerified();
+        if (s.isVerified[msg.sender][_eventId]) revert LibErrors.AlreadyVerified();
 
         // Validate proof
         require(_proof.length > 0, "Empty proof provided");

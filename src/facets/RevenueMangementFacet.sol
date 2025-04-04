@@ -5,8 +5,8 @@ import "../libraries/LibAppStorage.sol";
 import "../libraries/LibConstants.sol";
 import "../libraries/LibEvents.sol";
 import "../libraries/LibDiamond.sol";
-import "../libraries/Types.sol";
-import "../libraries/Errors.sol";
+import "../libraries/LibTypes.sol";
+import "../libraries/LibErrors.sol";
 import "../interfaces/ITicket_NFT.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -15,8 +15,8 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  * @dev Handles revenue management, release, and refunds
  */
 contract RevenueManagementFacet is ReentrancyGuard {
-    using Types for *;
-    using Errors for *;
+    using LibTypes for *;
+    using LibErrors for *;
 
     /**
      * @dev Releases event revenue to the organizer based on attendance rates and flagging status
@@ -24,24 +24,24 @@ contract RevenueManagementFacet is ReentrancyGuard {
      */
     function releaseRevenue(uint256 _eventId) external nonReentrant {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.EventDetails storage eventDetails = s.events[_eventId];
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Check if event exists and has ended
         if (_eventId == 0 || _eventId > s.totalEventOrganised)
-            revert Errors.EventDoesNotExist();
+            revert LibErrors.EventDoesNotExist();
         if (block.timestamp <= eventDetails.endDate)
-            revert Errors.EventNotEnded();
+            revert LibErrors.EventNotEnded();
 
         // Check if revenue was already released
-        if (s.revenueReleased[_eventId]) revert Errors.RevenueAlreadyReleased();
+        if (s.revenueReleased[_eventId]) revert LibErrors.RevenueAlreadyReleased();
 
         // Check if there's revenue to release
         uint256 revenue = s.organiserRevBal[eventDetails.organiser][_eventId];
-        if (revenue == 0) revert Errors.NoRevenueToRelease();
+        if (revenue == 0) revert LibErrors.NoRevenueToRelease();
 
         // Only event organizer can call this function
         if (msg.sender != eventDetails.organiser)
-            revert Errors.NotEventOrganizer();
+            revert LibErrors.NotEventOrganizer();
 
         // Calculate attendance rate
         uint256 attendanceRate = 0;
@@ -130,20 +130,20 @@ contract RevenueManagementFacet is ReentrancyGuard {
             "Only contract owner can manually release revenue"
         );
 
-        Types.EventDetails storage eventDetails = s.events[_eventId];
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Check if event exists and has ended
         if (_eventId == 0 || _eventId > s.totalEventOrganised)
-            revert Errors.EventDoesNotExist();
+            revert LibErrors.EventDoesNotExist();
         if (block.timestamp <= eventDetails.endDate)
-            revert Errors.EventNotEnded();
+            revert LibErrors.EventNotEnded();
 
         // Check if revenue was already released
-        if (s.revenueReleased[_eventId]) revert Errors.RevenueAlreadyReleased();
+        if (s.revenueReleased[_eventId]) revert LibErrors.RevenueAlreadyReleased();
 
         // Check if there's revenue to release
         uint256 revenue = s.organiserRevBal[eventDetails.organiser][_eventId];
-        if (revenue == 0) revert Errors.NoRevenueToRelease();
+        if (revenue == 0) revert LibErrors.NoRevenueToRelease();
 
         // Calculate attendance rate for the event record
         uint256 attendanceRate = 0;
@@ -181,7 +181,7 @@ contract RevenueManagementFacet is ReentrancyGuard {
         uint256 _eventId
     ) external view returns (bool canRelease, uint8 reason) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.EventDetails storage eventDetails = s.events[_eventId];
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Check if event exists and has ended
         if (
@@ -245,7 +245,7 @@ contract RevenueManagementFacet is ReentrancyGuard {
         returns (bool canRelease, uint256 attendanceRate, uint256 revenue)
     {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.EventDetails storage eventDetails = s.events[_eventId];
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         if (
             block.timestamp <= eventDetails.endDate ||
@@ -277,11 +277,11 @@ contract RevenueManagementFacet is ReentrancyGuard {
         address[] calldata _buyers
     ) external nonReentrant {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.EventDetails storage eventDetails = s.events[_eventId];
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Verify event and flagging status
         if (_eventId == 0 || _eventId > s.totalEventOrganised)
-            revert Errors.EventDoesNotExist();
+            revert LibErrors.EventDoesNotExist();
 
         // Get current flagging threshold based on time elapsed
         uint256 currentThreshold = getFlaggingThreshold(_eventId);
@@ -312,9 +312,9 @@ contract RevenueManagementFacet is ReentrancyGuard {
 
             // Determine refund amount based on ticket type
             uint256 refundAmount = 0;
-            Types.TicketTypes storage tickets = s.eventTickets[_eventId];
+            LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
 
-            if (eventDetails.ticketType == Types.TicketType.PAID) {
+            if (eventDetails.ticketType == LibTypes.TicketType.PAID) {
                 // Check for VIP ticket
                 if (hasVIPTicket(buyer, _eventId)) {
                     refundAmount = tickets.vipTicketFee;
@@ -387,7 +387,7 @@ contract RevenueManagementFacet is ReentrancyGuard {
         uint256 _eventId
     ) public view returns (uint256) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.EventDetails storage eventDetails = s.events[_eventId];
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Time since event ended
         uint256 timeElapsed = block.timestamp - eventDetails.endDate;
@@ -435,7 +435,7 @@ contract RevenueManagementFacet is ReentrancyGuard {
         uint256 _eventId
     ) public view returns (bool) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        Types.TicketTypes storage tickets = s.eventTickets[_eventId];
+        LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
 
         if (!tickets.hasVIPTicket || tickets.vipTicketNFT == address(0)) {
             return false;

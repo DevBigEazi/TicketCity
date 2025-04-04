@@ -5,7 +5,7 @@ pragma solidity 0.8.26;
  * @title Types
  * @dev Data structures used throughout the Ticket_City contract system
  */
-library Types {
+library LibTypes {
     enum TicketType {
         FREE,
         PAID
@@ -61,6 +61,7 @@ library Types {
         uint256 ticketFee;
         address ticketNFTAddr;
         address organiser;
+        address paymentToken;
     }
 
     struct TicketTypes {
