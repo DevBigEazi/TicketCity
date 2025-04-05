@@ -121,7 +121,7 @@ contract EventManagementFacet is ReentrancyGuard {
         eventDetails.organiser = msg.sender;
         s.allEvents.push(eventDetails);
 
-        emit LibEvents.EventOrganized(msg.sender, address(_paymentToken), eventId, _ticketType, initialStake);
+        emit LibEvents.EventCreated(msg.sender, address(_paymentToken), eventId, _ticketType, initialStake);
 
         return eventId;
     }

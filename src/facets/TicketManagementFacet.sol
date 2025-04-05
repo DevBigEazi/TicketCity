@@ -208,7 +208,7 @@ contract TicketManagementFacet is ReentrancyGuard {
 
             s.totalTicketCreated++;
 
-            emit LibEvents.TicketCreated(
+            emit LibEvents.(
                 _eventId,
                 msg.sender,
                 newTicketNFT,

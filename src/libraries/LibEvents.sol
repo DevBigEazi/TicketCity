@@ -9,7 +9,7 @@ import "../libraries/LibTypes.sol";
  */
 library LibEvents {
     // Core events
-    event EventOrganized(
+    event EventCreated(
         address indexed _organiser,
         address indexed _paymentToken,
         uint256 indexed _eventId,
@@ -63,11 +63,6 @@ library LibEvents {
     );
 
     /**
-     * @dev Emitted when Ether is received by the contract
-     */
-    event EtherReceived(address indexed _from, uint256 _amount);
-
-    /**
      * @dev Emitted when event is flagged by an attendee
      */
     event EventFlagged(
@@ -75,15 +70,6 @@ library LibEvents {
         address indexed _flagger,
         uint256 _flagTime,
         uint256 _weight
-    );
-
-    /**
-     * @dev Emitted when a refund is processed for a ticket buyer
-     */
-    event RefundProcessed(
-        uint256 indexed _eventId,
-        address indexed _buyer,
-        uint256 _amount
     );
 
     /**
@@ -96,27 +82,9 @@ library LibEvents {
     );
 
     /**
-     * @dev Emitted when an event is disputed by the organizer
-     */
-    event EventDisputed(
-        uint256 indexed _eventId,
-        address indexed _organiser,
-        string _evidence
-    );
-
-    /**
      * @dev Emitted when stake is refunded to an organizer
      */
     event StakeRefunded(
-        uint256 indexed _eventId,
-        address indexed _organiser,
-        uint256 _amount
-    );
-
-    /**
-     * @dev Emitted when damage fee is refunded to the organizer
-     */
-    event DamageFeeRefunded(
         uint256 indexed _eventId,
         address indexed _organiser,
         uint256 _amount
@@ -134,69 +102,6 @@ library LibEvents {
         address indexed _organiser,
         uint256 _timestamp
     );
-
-    /**
-     * @dev Emitted when an event is flagged with detailed information
-     */
-    event DetailedEventFlagged(
-        uint256 indexed _eventId,
-        address indexed _flagger,
-        uint8 _reasonCode,
-        string _evidence,
-        uint256 _stake
-    );
-
-    /**
-     * @dev Emitted when a false flagger is penalized
-     */
-    event FalseFlaggerPenalized(
-        uint256 indexed _eventId,
-        address indexed _flagger,
-        uint256 _stake
-    );
-
-    /**
-     * @dev Emitted when a dispute is initiated
-     */
-    event DisputeInitiated(
-        uint256 indexed _eventId,
-        address indexed _organiser,
-        uint8 _tier
-    );
-
-    /**
-     * @dev Emitted when a dispute is resolved
-     */
-    event DisputeResolved(
-        uint256 indexed _eventId,
-        bool _inFavorOfOrganizer,
-        uint8 _resolutionTier
-    );
-
-    /**
-     * @dev Emitted when jury members are selected for dispute resolution
-     */
-    event JurySelected(uint256 indexed _eventId, address[] _juryMembers);
-
-    /**
-     * @dev Emitted when a juror submits a vote in dispute resolution
-     */
-    event JuryVoteSubmitted(
-        uint256 indexed _eventId,
-        address indexed _juror,
-        bool _supportOrganizer
-    );
-
-    /**
-     * @dev Emitted when compensation is claimed
-     */
-    event CompensationClaimed(
-        uint256 indexed _eventId,
-        address indexed _claimer,
-        uint256 _amount
-    );
-
-    // New events for scam event handling
 
     /**
      * @dev Emitted when an event is confirmed as a scam by the contract owner
