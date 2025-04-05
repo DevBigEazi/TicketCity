@@ -20,6 +20,43 @@ contract RevenueManagementFacet is ReentrancyGuard {
     using LibErrors for *;
 
     /**
+     * @dev Checks if flagging threshold is met based on the 70% of non-verified attendees formula
+     * @param _eventId The ID of the event to check
+     * @return isFlaggingThresholdMet True if flagging threshold is met
+     */
+    function handleIsFlaggingThresholdMet(
+        uint256 _eventId
+    ) internal view returns (bool) {
+        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
+
+        // If no one registered, can't be flagged
+        if (eventDetails.userRegCount == 0) {
+            return false;
+        }
+
+        // Calculate the number of non-verified attendees
+        uint256 nonVerifiedCount = 0;
+        if (eventDetails.userRegCount > eventDetails.verifiedAttendeesCount) {
+            nonVerifiedCount =
+                eventDetails.userRegCount -
+                eventDetails.verifiedAttendeesCount;
+        }
+
+        // If everyone verified attendance, no flagging threshold can be met
+        if (nonVerifiedCount == 0) {
+            return false;
+        }
+
+        // Calculate the threshold count - 70% of non-verified attendees
+        uint256 thresholdCount = (nonVerifiedCount *
+            LibConstants.FLAGGING_THRESHOLD) / 100;
+
+        // Check if the actual flag count exceeds the threshold
+        return s.totalFlagsCount[_eventId] >= thresholdCount;
+    }
+
+    /**
      * @dev Releases event revenue to the organizer based on attendance rates and flagging status
      * @param _eventId The ID of the event
      */
@@ -64,15 +101,8 @@ contract RevenueManagementFacet is ReentrancyGuard {
         bool isAfterFlaggingPeriod = block.timestamp >
             eventDetails.endDate + LibConstants.FLAGGING_PERIOD;
 
-        // Check if flagging threshold is met
-        uint256 flagPercentage = 0;
-        if (eventDetails.userRegCount > 0) {
-            flagPercentage =
-                (s.totalFlagsCount[_eventId] * 100) /
-                eventDetails.userRegCount;
-        }
-        bool isFlaggingThresholdMet = flagPercentage >=
-            LibConstants.FLAGGING_THRESHOLD;
+        // Check if flagging threshold is met using our new calculation
+        bool isFlaggingThresholdMet = handleIsFlaggingThresholdMet(_eventId);
 
         // If attendance rate is below minimum AND within flagging period, revert
         if (
@@ -267,7 +297,7 @@ contract RevenueManagementFacet is ReentrancyGuard {
 
         // Determine ticket type and price
         if (eventDetails.ticketType == LibTypes.TicketType.FREE) {
-            // Free events - no ticket price refund, only stake share
+            // Free events - no ticket price refund or stake share
         } else {
             // Paid event - determine ticket type
             LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
@@ -361,21 +391,36 @@ contract RevenueManagementFacet is ReentrancyGuard {
                 eventDetails.userRegCount;
         }
 
-        // Check if flagging threshold is met
-        uint256 flagPercentage = 0;
-        if (eventDetails.userRegCount > 0) {
-            flagPercentage =
-                (s.totalFlagsCount[_eventId] * 100) /
-                eventDetails.userRegCount;
+        // Check if flagging threshold is met using our new calculation
+        bool isFlaggingThresholdMet = false;
+
+        // Calculate non-verified attendees
+        uint256 nonVerifiedCount = 0;
+        if (eventDetails.userRegCount > eventDetails.verifiedAttendeesCount) {
+            nonVerifiedCount =
+                eventDetails.userRegCount -
+                eventDetails.verifiedAttendeesCount;
         }
 
-        if (flagPercentage >= LibConstants.FLAGGING_THRESHOLD) {
+        // If there are non-verified attendees, calculate threshold
+        if (nonVerifiedCount > 0) {
+            // Calculate threshold (70% of non-verified attendees)
+            uint256 thresholdCount = (nonVerifiedCount *
+                LibConstants.FLAGGING_THRESHOLD) / 100;
+
+            // Check if flag count meets the threshold
+            isFlaggingThresholdMet =
+                s.totalFlagsCount[_eventId] >= thresholdCount;
+        }
+
+        if (isFlaggingThresholdMet) {
             return (false, 2); // Flagged by users
         }
 
         // Can release if after flagging period OR if attendance rate is sufficient
         bool isAfterFlaggingPeriod = block.timestamp >
             eventDetails.endDate + LibConstants.FLAGGING_PERIOD;
+
         if (
             isAfterFlaggingPeriod ||
             attendanceRate >= LibConstants.MINIMUM_ATTENDANCE_RATE
