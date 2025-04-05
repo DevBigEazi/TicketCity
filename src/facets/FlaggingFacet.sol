@@ -54,7 +54,7 @@ contract FlaggingFacet is ReentrancyGuard {
         }
 
         // Determine flag weight based on ticket type (1 for standard, to be expanded later)
-        uint256 weight = 1; 
+        uint256 weight = 1;
 
         // Mark as flagged and increment count with weight
         s.hasFlaggedEvent[msg.sender][_eventId] = true;
@@ -75,35 +75,68 @@ contract FlaggingFacet is ReentrancyGuard {
     }
 
     /**
-     * @dev Gets the percentage of attendees who have flagged the event
+     * @dev Gets the flag threshold information for an event
      * @param _eventId The ID of the event
-     * @return flagPercentage Percentage of attendees who flagged the event
+     * @return isFlagThresholdMet Whether the flag threshold has been met
      * @return flagCount Total count of flags
      * @return attendeeCount Total number of attendees
+     * @return verifiedCount Number of verified attendees
+     * @return nonVerifiedCount Number of non-verified attendees
+     * @return requiredFlagCount Number of flags required to meet threshold
      */
-    function getFlagPercentage(
+    function getFlagThresholdInfo(
         uint256 _eventId
     )
         external
         view
         returns (
-            uint256 flagPercentage,
+            bool isFlagThresholdMet,
             uint256 flagCount,
-            uint256 attendeeCount
+            uint256 attendeeCount,
+            uint256 verifiedCount,
+            uint256 nonVerifiedCount,
+            uint256 requiredFlagCount
         )
     {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
-        if (eventDetails.userRegCount == 0) {
-            return (0, 0, 0);
+        // Get basic counts
+        attendeeCount = eventDetails.userRegCount;
+        verifiedCount = eventDetails.verifiedAttendeesCount;
+        flagCount = s.totalFlagsCount[_eventId];
+
+        // If no attendees, no flags can be cast
+        if (attendeeCount == 0) {
+            return (false, 0, 0, 0, 0, 0);
         }
 
-        flagCount = s.totalFlagsCount[_eventId];
-        attendeeCount = eventDetails.userRegCount;
-        flagPercentage = (flagCount * 100) / attendeeCount;
+        // Calculate non-verified attendees
+        nonVerifiedCount = attendeeCount > verifiedCount
+            ? attendeeCount - verifiedCount
+            : 0;
 
-        return (flagPercentage, flagCount, attendeeCount);
+        // If everyone verified, no threshold can be met
+        if (nonVerifiedCount == 0) {
+            return (false, flagCount, attendeeCount, verifiedCount, 0, 0);
+        }
+
+        // Calculate required flags (70% of non-verified attendees)
+        requiredFlagCount =
+            (nonVerifiedCount * LibConstants.FLAGGING_THRESHOLD) /
+            100;
+
+        // Determine if threshold is met
+        isFlagThresholdMet = flagCount >= requiredFlagCount;
+
+        return (
+            isFlagThresholdMet,
+            flagCount,
+            attendeeCount,
+            verifiedCount,
+            nonVerifiedCount,
+            requiredFlagCount
+        );
     }
 
     /**
