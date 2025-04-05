@@ -253,6 +253,7 @@ The platform behavior is governed by several constants defined in LibConstants:
 - `FREE_TICKET_PRICE`: Fixed at 0
 
 ## Ticket City Process Flow
+ ```mermaid
 graph TD
     subgraph "Event Creation Flow"
     A[Organizer] -->|Creates Event with<br>ERC20 stablecoin| B[Ticket_City Contract]
@@ -264,17 +265,20 @@ graph TD
     F -->|FREE| G[Single Ticket Type]
     F -->|PAID| H[Regular/VIP Options]
     B -->|Collects Additional Stake| C
-    end
+```
 
 ## Ticket Purchase Flow
+```mermaid
 graph TD
     A[Attendee] -->|Sends Stablecoin| B[Ticket_City Contract]
     B -->|Validates Payment| C[Payment Validation]
     C -->|Success| D[Mint Soulbound NFT Ticket]
     D -->|Updates| E[Event Records]
     D -->|Adds to| F[Revenue Escrow]
+```
 
 ## Attendance Verification Flow
+```mermaid
 graph TD
     A[Organizer] -->|Sets Merkle Root| B[Ticket_City Contract]
     C[Attendee] -->|Provides Merkle Proof| B
@@ -282,8 +286,10 @@ graph TD
     D -->|Valid| E[Mark Attendance Verified]
     D -->|Invalid| F[Reject Verification]
     E -->|Updates| G[Attendance Metrics]
+```
 
 ## Revenue Release Flow
+```mermaid
     graph TD
     A[Event Ends] -->|Starts| B[Waiting Period]
     B -->|Check| C{Attendance Rate ≥ 70%?}
@@ -296,8 +302,10 @@ graph TD
     H -->|Owner Reviews| I{Confirm as Scam?}
     I -->|Yes| J[Enable Refunds]
     I -->|No| G
+```
 
 ## Flagging and Dispute Flow
+```mermaid
 graph TD
     A[Attendee] -->|Flags Event| B[Ticket_City Contract]
     B -->|Stores Flag| C[Flag Storage]
@@ -306,6 +314,7 @@ graph TD
     F -->|Legitimate Event| G[Manual Revenue Release]
     F -->|Scam Confirmed| H[Enable Refunds]
     H -->|Attendees Claim| I[Refund Distribution]
+```
 
 ### For Event Organizers
 
