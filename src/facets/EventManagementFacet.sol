@@ -66,7 +66,10 @@ contract EventManagementFacet is ReentrancyGuard {
 
         // Check if the token is supported
         if (_ticketType == LibTypes.TicketType.PAID) {
-            if (address(_paymentToken) != address(0) && !s.supportedTokens[address(_paymentToken)]) {
+            if (
+                address(_paymentToken) != address(0) &&
+                !s.supportedTokens[address(_paymentToken)]
+            ) {
                 revert LibErrors.TokenNotSupported();
             }
         }
@@ -74,19 +77,30 @@ contract EventManagementFacet is ReentrancyGuard {
         // For PAID events, we'll collect a minimal initial stake
         uint256 initialStake = 0;
         if (_ticketType == LibTypes.TicketType.PAID) {
-            initialStake = 10e6; // $10 Minimal placeholder stake
+            initialStake = LibConstants.INITIAL_STAKE_AMOUNT;
             // Check if the payment token is valid
             if (_paymentToken.balanceOf(msg.sender) < initialStake) {
                 revert LibErrors.InsufficientInitialStake();
             }
-            if (_paymentToken.allowance(msg.sender, address(this)) < initialStake) {
+            if (
+                _paymentToken.allowance(msg.sender, address(this)) <
+                initialStake
+            ) {
                 revert LibErrors.InsufficientAllowance();
             }
 
             // Transfer the initial stake to the contract
-            _paymentToken.safeTransferFrom(msg.sender, address(this), initialStake);
+            _paymentToken.safeTransferFrom(
+                msg.sender,
+                address(this),
+                initialStake
+            );
 
-            emit IExtendedERC20.Transfer(msg.sender, address(this), initialStake);
+            emit IExtendedERC20.Transfer(
+                msg.sender,
+                address(this),
+                initialStake
+            );
         }
 
         uint256 eventId = s.totalEventOrganised + 1;
@@ -121,7 +135,13 @@ contract EventManagementFacet is ReentrancyGuard {
         eventDetails.organiser = msg.sender;
         s.allEvents.push(eventDetails);
 
-        emit LibEvents.EventCreated(msg.sender, address(_paymentToken), eventId, _ticketType, initialStake);
+        emit LibEvents.EventCreated(
+            msg.sender,
+            address(_paymentToken),
+            eventId,
+            _ticketType,
+            initialStake
+        );
 
         return eventId;
     }
@@ -131,7 +151,10 @@ contract EventManagementFacet is ReentrancyGuard {
      * @param _eventId The ID of the event
      * @param _merkleRoot The Merkle root hash of all attendees
      */
-    function setEventMerkleRoot(uint256 _eventId, bytes32 _merkleRoot) external {
+    function setEventMerkleRoot(
+        uint256 _eventId,
+        bytes32 _merkleRoot
+    ) external {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
 
         LibUtils._validateEventAndOrganizer(_eventId);
@@ -146,7 +169,9 @@ contract EventManagementFacet is ReentrancyGuard {
      * @param _eventId The ID of the event to retrieve
      * @return eventDetails The details of the event
      */
-    function getEvent(uint256 _eventId) public view returns (LibTypes.EventDetails memory eventDetails) {
+    function getEvent(
+        uint256 _eventId
+    ) public view returns (LibTypes.EventDetails memory eventDetails) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         return eventDetails = s.events[_eventId];
     }
@@ -156,7 +181,9 @@ contract EventManagementFacet is ReentrancyGuard {
      * @param _user Address of the event organizer
      * @return Array of event IDs without tickets
      */
-    function getEventsWithoutTicketsByUser(address _user) external view returns (uint256[] memory) {
+    function getEventsWithoutTicketsByUser(
+        address _user
+    ) external view returns (uint256[] memory) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
 
         if (_user == address(0)) revert LibErrors.AddressZeroDetected();
@@ -237,7 +264,9 @@ contract EventManagementFacet is ReentrancyGuard {
      * @param _user Address of the user whose organized events with tickets to fetch
      * @return Array of event IDs organized by the specified user that have tickets
      */
-    function getEventsWithTicketByUser(address _user) external view returns (uint256[] memory) {
+    function getEventsWithTicketByUser(
+        address _user
+    ) external view returns (uint256[] memory) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
 
         if (_user == address(0)) revert LibErrors.AddressZeroDetected();
@@ -257,7 +286,9 @@ contract EventManagementFacet is ReentrancyGuard {
                 } else if (eventData.ticketType == LibTypes.TicketType.PAID) {
                     // For PAID events, check if either regular or VIP tickets exist
                     LibTypes.TicketTypes memory tickets = s.eventTickets[i];
-                    hasTickets = tickets.hasRegularTicket || tickets.hasVIPTicket;
+                    hasTickets =
+                        tickets.hasRegularTicket ||
+                        tickets.hasVIPTicket;
                 }
 
                 if (hasTickets) {
@@ -283,7 +314,9 @@ contract EventManagementFacet is ReentrancyGuard {
                 } else if (eventData.ticketType == LibTypes.TicketType.PAID) {
                     // For PAID events, check if either regular or VIP tickets exist
                     LibTypes.TicketTypes memory tickets = s.eventTickets[i];
-                    hasTickets = tickets.hasRegularTicket || tickets.hasVIPTicket;
+                    hasTickets =
+                        tickets.hasRegularTicket ||
+                        tickets.hasVIPTicket;
                 }
 
                 if (hasTickets) {
@@ -313,7 +346,10 @@ contract EventManagementFacet is ReentrancyGuard {
             bool hasTicket = false;
 
             // Check if event has tickets
-            if (eventDetails.ticketType == LibTypes.TicketType.FREE && eventDetails.ticketNFTAddr != address(0)) {
+            if (
+                eventDetails.ticketType == LibTypes.TicketType.FREE &&
+                eventDetails.ticketNFTAddr != address(0)
+            ) {
                 hasTicket = true;
             } else if (tickets.hasRegularTicket || tickets.hasVIPTicket) {
                 hasTicket = true;
@@ -335,7 +371,10 @@ contract EventManagementFacet is ReentrancyGuard {
             bool hasTicket = false;
 
             // Check if event has tickets
-            if (eventDetails.ticketType == LibTypes.TicketType.FREE && eventDetails.ticketNFTAddr != address(0)) {
+            if (
+                eventDetails.ticketType == LibTypes.TicketType.FREE &&
+                eventDetails.ticketNFTAddr != address(0)
+            ) {
                 hasTicket = true;
             } else if (tickets.hasRegularTicket || tickets.hasVIPTicket) {
                 hasTicket = true;
