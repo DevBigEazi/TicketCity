@@ -265,6 +265,7 @@ graph TD
     F -->|FREE| G[Single Ticket Type]
     F -->|PAID| H[Regular/VIP Options]
     B -->|Collects Additional Stake| C
+end
 ```
 
 ## Ticket Purchase Flow
