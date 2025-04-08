@@ -8,7 +8,8 @@ import "../libraries/LibDiamond.sol";
 import "../libraries/LibTypes.sol";
 import "../libraries/LibErrors.sol";
 import "../libraries/LibUtils.sol";
-import "../interfaces/ITicket_NFT.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
 /**
@@ -16,121 +17,92 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  * @dev Handles revenue management, release, refunds, and scam event processing
  */
 contract RevenueManagementFacet is ReentrancyGuard {
+    using SafeERC20 for IERC20;
     using LibTypes for *;
     using LibErrors for *;
 
     /**
-     * @dev Checks if flagging threshold is met based on the 70% of non-verified attendees formula
-     * @param _eventId The ID of the event to check
-     * @return isFlaggingThresholdMet True if flagging threshold is met
-     */
-    function handleIsFlaggingThresholdMet(
-        uint256 _eventId
-    ) internal view returns (bool) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
-
-        // If no one registered, can't be flagged
-        if (eventDetails.userRegCount == 0) {
-            return false;
-        }
-
-        // Calculate the number of non-verified attendees
-        uint256 nonVerifiedCount = 0;
-        if (eventDetails.userRegCount > eventDetails.verifiedAttendeesCount) {
-            nonVerifiedCount =
-                eventDetails.userRegCount -
-                eventDetails.verifiedAttendeesCount;
-        }
-
-        // If everyone verified attendance, no flagging threshold can be met
-        if (nonVerifiedCount == 0) {
-            return false;
-        }
-
-        // Calculate the threshold count - 70% of non-verified attendees
-        uint256 thresholdCount = (nonVerifiedCount *
-            LibConstants.FLAGGING_THRESHOLD) / 100;
-
-        // Check if the actual flag count exceeds the threshold
-        return s.totalFlagsCount[_eventId] >= thresholdCount;
-    }
-
-    /**
-     * @dev Releases event revenue to the organizer based on attendance rates and flagging status
-     * @param _eventId The ID of the event
+     * @dev Releases event revenue to the organizer in ERC20 tokens
      */
     function releaseRevenue(uint256 _eventId) external nonReentrant {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
-        // Check if event exists and has ended
+        // Existing validations remain the same
         if (_eventId == 0 || _eventId > s.totalEventOrganised) {
             revert LibErrors.EventDoesNotExist();
         }
         if (block.timestamp <= eventDetails.endDate) {
             revert LibErrors.EventNotEnded();
         }
-
-        // Check if revenue was already released
         if (s.revenueReleased[_eventId])
             revert LibErrors.RevenueAlreadyReleased();
+        if (s.eventConfirmedScam[_eventId]) revert("Event confirmed as scam");
 
-        // Check if event was marked as scam
-        if (s.eventConfirmedScam[_eventId])
-            revert("Event confirmed as scam. Attendees should claim refunds");
-
-        // Check if there's revenue to release
         uint256 revenue = s.organiserRevBal[eventDetails.organiser][_eventId];
         if (revenue == 0) revert LibErrors.NoRevenueToRelease();
-
-        // Only event organizer can call this function
-        if (msg.sender != eventDetails.organiser) {
+        if (msg.sender != eventDetails.organiser)
             revert LibErrors.NotEventOrganizer();
-        }
 
         // Calculate attendance rate
-        uint256 attendanceRate = 0;
-        if (eventDetails.userRegCount > 0) {
-            attendanceRate =
-                (eventDetails.verifiedAttendeesCount * 100) /
-                eventDetails.userRegCount;
-        }
+        uint256 attendanceRate = eventDetails.userRegCount > 0
+            ? (eventDetails.verifiedAttendeesCount * 100) /
+                eventDetails.userRegCount
+            : 0;
 
-        // Check if flagging period has ended (4 days after event end)
+        // Check flagging status
         bool isAfterFlaggingPeriod = block.timestamp >
             eventDetails.endDate + LibConstants.FLAGGING_PERIOD;
-
-        // Check if flagging threshold is met using our new calculation
         bool isFlaggingThresholdMet = handleIsFlaggingThresholdMet(_eventId);
 
-        // If attendance rate is below minimum AND within flagging period, revert
         if (
-            attendanceRate < LibConstants.MINIMUM_ATTENDANCE_RATE &&
+            attendanceRate < LibConstants.MINIMUM_ATTENDEE_RATE &&
             !isAfterFlaggingPeriod
         ) {
             revert("Low attendance rate: Must wait 4 days after event ends");
         }
-
-        // If flagging threshold is met, revert as event is flagged as scam
         if (isFlaggingThresholdMet) {
-            revert(
-                "Event has been flagged by attendees. Contact platform owner for review"
-            );
+            revert("Event has been flagged by attendees");
         }
 
-        // Mark revenue as released
+        // Calculate and deduct platform fees
+        uint256 serviceFee;
+        if (eventDetails.ticketType == LibTypes.TicketType.FREE) {
+            // Free event service fee calculation
+            if (
+                eventDetails.userRegCount >
+                LibConstants.FREE_EVENT_ATTENDEE_THRESHOLD
+            ) {
+                uint256 multiplier = eventDetails.userRegCount /
+                    LibConstants.FREE_EVENT_ATTENDEE_THRESHOLD;
+                serviceFee =
+                    LibConstants.FREE_EVENT_SERVICE_FEE_BASE *
+                    multiplier;
+                serviceFee = serviceFee > revenue ? revenue : serviceFee;
+            }
+        } else {
+            // Paid event service fee (5%)
+            serviceFee =
+                (revenue * LibConstants.PAID_EVENT_SERVICE_FEE_PERCENT) /
+                100;
+        }
+
+        // Update balances
         s.revenueReleased[_eventId] = true;
-
-        // Transfer revenue to organizer
         s.organiserRevBal[eventDetails.organiser][_eventId] = 0;
-        (bool success, ) = eventDetails.organiser.call{value: revenue}("");
-        require(success, "Revenue transfer failed");
 
-        // Update organizer reputation for successful event
+        // Transfer funds
+        IERC20 paymentToken = IERC20(eventDetails.paymentToken);
+        if (serviceFee > 0) {
+            paymentToken.safeTransfer(address(this), serviceFee);
+            revenue -= serviceFee;
+            s.platformRevenue += serviceFee;
+        }
+        paymentToken.safeTransfer(eventDetails.organiser, revenue);
+
+        // Update organizer reputation
         s.organizerSuccessfulEvents[eventDetails.organiser]++;
 
-        // Emit event with appropriate details
         emit LibEvents.RevenueReleased(
             _eventId,
             eventDetails.organiser,
@@ -141,168 +113,22 @@ contract RevenueManagementFacet is ReentrancyGuard {
     }
 
     /**
-     * @dev Allows contract owner to manually release revenue for special cases
-     * @param _eventId The ID of the event
-     */
-    function manualReleaseRevenue(uint256 _eventId) external {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        // Only contract owner can do this
-        require(
-            msg.sender == s.owner,
-            "Only contract owner can manually release revenue"
-        );
-
-        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
-
-        // Check if event exists and has ended
-        if (_eventId == 0 || _eventId > s.totalEventOrganised) {
-            revert LibErrors.EventDoesNotExist();
-        }
-        if (block.timestamp <= eventDetails.endDate) {
-            revert LibErrors.EventNotEnded();
-        }
-
-        // Check if revenue was already released
-        if (s.revenueReleased[_eventId])
-            revert LibErrors.RevenueAlreadyReleased();
-
-        // Check if event was confirmed as scam
-        if (s.eventConfirmedScam[_eventId])
-            revert("Event confirmed as scam, refunds in process");
-
-        // Check if there's revenue to release
-        uint256 revenue = s.organiserRevBal[eventDetails.organiser][_eventId];
-        if (revenue == 0) revert LibErrors.NoRevenueToRelease();
-
-        // Calculate attendance rate for the event record
-        uint256 attendanceRate = 0;
-        if (eventDetails.userRegCount > 0) {
-            attendanceRate =
-                (eventDetails.verifiedAttendeesCount * 100) /
-                eventDetails.userRegCount;
-        }
-
-        // Mark revenue as released
-        s.revenueReleased[_eventId] = true;
-
-        // Transfer revenue to organizer
-        s.organiserRevBal[eventDetails.organiser][_eventId] = 0;
-        (bool success, ) = eventDetails.organiser.call{value: revenue}("");
-        require(success, "Revenue transfer failed");
-
-        // Update organizer reputation for successful event
-        s.organizerSuccessfulEvents[eventDetails.organiser]++;
-
-        // Emit event showing this was manually released
-        emit LibEvents.RevenueReleased(
-            _eventId,
-            eventDetails.organiser,
-            revenue,
-            attendanceRate,
-            true
-        );
-    }
-
-    /**
-     * @dev Allows contract owner to confirm an event as a scam
-     * @param _eventId The ID of the event
-     * @param _details Details about the scam investigation results
-     */
-    function confirmEventAsScam(
-        uint256 _eventId,
-        string calldata _details
-    ) external {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
-
-        // Only contract owner can do this
-        require(
-            msg.sender == s.owner,
-            "Only contract owner can confirm event as scam"
-        );
-
-        // Check if event exists and has ended
-        if (_eventId == 0 || _eventId > s.totalEventOrganised) {
-            revert LibErrors.EventDoesNotExist();
-        }
-
-        // Check time constraint - within 30 days of event end or manual review request
-        uint256 reviewRequestTime = s.manualReviewRequestTime[_eventId];
-        uint256 cutoffTime = reviewRequestTime > 0
-            ? reviewRequestTime + LibConstants.SCAM_CONFIRM_PERIOD
-            : eventDetails.endDate + LibConstants.SCAM_CONFIRM_PERIOD;
-
-        require(
-            block.timestamp <= cutoffTime,
-            "Scam confirmation period has ended"
-        );
-
-        // Check if revenue was already released
-        if (s.revenueReleased[_eventId])
-            revert LibErrors.RevenueAlreadyReleased();
-
-        // Check if already confirmed as scam
-        if (s.eventConfirmedScam[_eventId])
-            revert("Event already confirmed as scam");
-
-        // Mark event as scam
-        s.eventConfirmedScam[_eventId] = true;
-        s.scamConfirmationDetails[_eventId] = _details;
-        s.scamConfirmationTime[_eventId] = block.timestamp;
-
-        // Penalize organizer by incrementing scam count
-        s.organizerScammedEvents[eventDetails.organiser]++;
-
-        // Add to platform revenue (10% of staked amount)
-        uint256 stakedAmount = s.stakedAmounts[_eventId];
-        if (stakedAmount > 0) {
-            uint256 platformFee = (stakedAmount * 10) / 100; // 10% to platform
-            s.platformRevenue += platformFee;
-            s.stakedAmounts[_eventId] = stakedAmount - platformFee; // Reduce staked amount available for refunds
-        }
-
-        // Emit event for scam confirmation
-        emit LibEvents.EventConfirmedAsScam(
-            _eventId,
-            block.timestamp,
-            _details
-        );
-    }
-
-    /**
-     * @dev Allows a ticket buyer to claim refund for a confirmed scam event
-     * @param _eventId The ID of the event
+     * @dev Claim refund for scam event in ERC20 tokens
      */
     function claimScamEventRefund(uint256 _eventId) external nonReentrant {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
-        // Check if event is confirmed as scam
         require(s.eventConfirmedScam[_eventId], "Event not confirmed as scam");
+        require(s.hasRegistered[msg.sender][_eventId], "Not a ticket buyer");
+        require(!s.hasClaimedRefund[msg.sender][_eventId], "Already claimed");
 
-        // Check if user is a ticket buyer
-        require(
-            s.hasRegistered[msg.sender][_eventId],
-            "Not a ticket buyer for this event"
-        );
-
-        // Check if already claimed refund
-        require(
-            !s.hasClaimedRefund[msg.sender][_eventId],
-            "Already claimed refund"
-        );
-
-        // Calculate basic refund (ticket price)
         uint256 refundAmount = 0;
+        IERC20 paymentToken = IERC20(eventDetails.paymentToken);
 
-        // Determine ticket type and price
-        if (eventDetails.ticketType == LibTypes.TicketType.FREE) {
-            // Free events - no ticket price refund or stake share
-        } else {
-            // Paid event - determine ticket type
+        if (eventDetails.ticketType != LibTypes.TicketType.FREE) {
             LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
 
-            // Check if they have a VIP ticket
             if (LibUtils._hasVIPTicket(msg.sender, _eventId)) {
                 refundAmount = tickets.vipTicketFee;
             } else if (LibUtils._hasRegularTicket(msg.sender, _eventId)) {
@@ -311,37 +137,28 @@ contract RevenueManagementFacet is ReentrancyGuard {
         }
 
         // Add share of staked amount (90% divided among all attendees)
-        uint256 stakeShare = 0;
-        if (eventDetails.userRegCount > 0) {
-            stakeShare =
-                (s.stakedAmounts[_eventId] * 90) /
-                (eventDetails.userRegCount * 100);
-        }
+        uint256 stakeShare = eventDetails.userRegCount > 0
+            ? (s.stakedAmounts[_eventId] * 90) /
+                (eventDetails.userRegCount * 100)
+            : 0;
 
-        // Total refund = ticket price + stake share
         uint256 totalRefund = refundAmount + stakeShare;
 
         // Mark as claimed
         s.hasClaimedRefund[msg.sender][_eventId] = true;
         s.claimedRefundAmount[msg.sender][_eventId] = totalRefund;
 
-        // Process refund from organizer revenue or staked amount
-        uint256 revenueBalance = s.organiserRevBal[eventDetails.organiser][
-            _eventId
-        ];
-
-        if (refundAmount <= revenueBalance) {
-            // Refund ticket price from revenue
-            s.organiserRevBal[eventDetails.organiser][_eventId] -= refundAmount;
-        } else {
-            // Not enough in revenue, take from remaining stake
-            refundAmount = 0; // Cannot refund ticket price
-        }
-
-        // Send combined refund to buyer
+        // Process refund
         if (totalRefund > 0) {
-            (bool success, ) = msg.sender.call{value: totalRefund}("");
-            require(success, "Refund transfer failed");
+            // Check if enough balance in contract
+            uint256 contractBalance = paymentToken.balanceOf(address(this));
+            require(
+                contractBalance >= totalRefund,
+                "Insufficient contract balance"
+            );
+
+            // Transfer refund
+            paymentToken.safeTransfer(msg.sender, totalRefund);
 
             emit LibEvents.RefundClaimed(
                 _eventId,
