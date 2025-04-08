@@ -1,229 +1,416 @@
-# Ticket City - Technical Documentation
+# Ticket City Platform Documentation
 
-'Ticket_City contract successfully deployed to': '0x123bFf8D754b29772E1EfAD5B075F55600577DcD'
+## Overview
 
-## Veriified link
+Ticket City is a decentralized ticketing platform built on blockchain technology that aims to solve common problems in the event ticketing industry such as fraud, scalping, and lack of transparency. The platform leverages smart contracts to create a trustless environment where event organizers and attendees can interact with confidence.
 
-https://blockexplorer.electroneum.com/address/0x123bFf8D754b29772E1EfAD5B075F55600577DcD#code
+The platform utilizes two key blockchain technologies to enhance security and usability:
 
+1. **Soulbound NFT Tickets**: Each ticket is represented as a non-transferable (soulbound) NFT, preventing unauthorized reselling and ensuring tickets remain with their original purchasers.
 
-## Smart Contract Architecture
+2. **Stablecoin Payments**: The platform exclusively uses ERC20 stablecoins for all transactions, providing price stability for both organizers and attendees while maintaining the benefits of blockchain-based payments.
 
-### Core Components
+The platform has been implemented using the Diamond Proxy pattern for enhanced modularity, upgradeability, and gas efficiency.
 
-1. `Ticket_City.sol`: Main contract handling event logic and ETN payments
-2. `Ticket_NFT.sol`: Non-transferable NFT implementation for event tickets
-3. `Types.sol`: Data structures and enums
-4. `Errors.sol`: Custom error definitions
+## Core Features
 
-#### Security Measures
+### Event Management
 
-- NonReentrant guard for payment functions
-- Event organizer verification
-- Minimum attendance rate requirements
-- Revenue release conditions
+- **Event Creation**: Organizers can create events with details including title, description, image, location, start/end dates, and expected attendance.
+- **Ticket Types**: Support for different ticket categories (FREE, REGULAR, VIP) with varying price points.
+- **Stablecoin Support**: Multiple ERC20 stablecoins can be supported for payments.
+- **Revenue Management**: Automated release of revenue to organizers after successful events.
 
-### Smart Contract Interactions
+### Trust & Security Mechanisms
 
-#### Event Creation Flow
+- **Staking System**: Event organizers provide an initial stake when creating paid events, with additional stake required when creating tickets. The stake amount is calculated based on ticket price and expected attendance, with 20% of expected revenue required as stake.
+- **Merkle-based Attendance Verification**: Organizers set a Merkle root for attendees, and attendees verify their presence by providing a valid Merkle proof.
+- **Flagging System**: Ticket holders can flag events as fraudulent after they end, providing reasons for the flag. There is a 4-day flagging period after event conclusion.
+- **Dispute Resolution**: Organizers can request manual review with explanations if their event is heavily flagged. The platform owner can manually confirm events as scams after investigation.
+- **Reputation Tracking**: The system tracks both successful events and scam events per organizer, which affects future staking requirements.
+- **Organizer Blacklisting**: The platform maintains a blacklist of fraudulent organizers who are prevented from creating new events.
 
-```mermaid
-graph TD
-    A[Organizer] -->|Creates Event| B[Ticket_City Contract]
-    B -->|Deploys| C[NFT Contract]
-    B -->|Sets| D[Ticket Types]
-    D -->|FREE| E[Single Ticket Type]
-    D -->|PAID| F[Regular/VIP Options]
+### Advanced Anti-Fraud Measures
+
+- **Soulbound NFT Tickets**: Non-transferable tickets prevent unauthorized reselling and secondary markets.
+- **Stablecoin-Based Payments**: Using stablecoins provides price stability and auditability for all transactions.
+- **Simple Flagging Mechanism**: Any ticket holder can flag an event with a reason if they believe it was fraudulent.
+- **Time-Limited Flagging**: Flags must be submitted within 4 days of the event ending.
+- **Attendance Verification**: Merkle-proof based attendance verification ensures only legitimate attendees are counted.
+
+## Architecture Overview
+
+The project implements the Diamond Proxy pattern, which provides several advantages:
+
+- **Modularity**: Functionality is separated into logical facets
+- **Upgradeability**: Individual facets can be upgraded without affecting the entire system
+- **Gas Efficiency**: Only deployed facets contribute to contract size
+- **Storage Management**: Shared storage layout across all facets
+
+### Diamond Pattern Implementation
+
+The Ticket City platform uses the Diamond Standard (EIP-2535) with the following components:
+
+1. **Diamond Proxy**: The main entry point that delegates calls to the appropriate facets
+2. **Facets**: Specialized modules that implement specific functionalities
+3. **Diamond Storage**: Shared storage pattern across all facets
+4. **Diamond Loupe**: Functionality to introspect the diamond
+
+### Core Facets
+
+The platform's functionality is distributed across several facets:
+
+1. **EventManagementFacet**: Handles event creation and management
+2. **TicketManagementFacet**: Manages ticket creation, types, and purchasing
+3. **TokenManagementFacet**: Manages supported ERC20 stablecoins for payments
+4. **RevenueManagementFacet**: Handles revenue release, refunds, and scam event processing
+5. **FlaggingFacet**: Implements the event flagging system
+6. **OwnershipFacet**: Implements the IERC173 interface for ownership management
+
+## Key Components In Detail
+
+### Event System
+
+Events in Ticket City are created by organizers who define parameters such as:
+
+- Event title, description, and image URI
+- Physical location
+- Start and end dates
+- Expected number of attendees
+- Ticket type (FREE or PAID)
+- Payment stablecoin (for PAID events)
+
+For PAID events, organizers must provide an initial minimal stake of 10 USDC (10e6 in smallest units), with additional stake required when creating tickets. This stake amount varies based on the organizer's reputation score and past performance.
+
+```solidity
+function createEvent(
+    string memory _title,
+    string memory _desc,
+    string memory _imageUri,
+    string memory _location,
+    uint256 _startDate,
+    uint256 _endDate,
+    uint256 _expectedAttendees,
+    LibTypes.TicketType _ticketType,
+    IERC20 _paymentToken
+) external nonReentrant returns (uint256)
 ```
 
-#### Ticket Purchase Flow
+The platform also provides several methods to fetch events:
+
+- Get events without tickets for a user
+- Get events with tickets for a user
+- Get all valid events with available tickets
+
+### Ticketing System
+
+Once an event is created, organizers can define different ticket types:
+
+- **FREE tickets**: No cost to attendees
+- **REGULAR tickets**: Standard paid admission
+- **VIP tickets**: Premium paid admission at a higher price point
+
+Each ticket is represented as a soulbound (non-transferable) NFT, providing verifiable ownership while preventing ticket scalping and unauthorized transfers. The `Ticket_NFT` contract enforces this non-transferability by overriding the `_update` function to revert when attempted transfers occur between non-zero addresses:
+
+```solidity
+function _update(address to, uint256 tokenId, address auth) internal override returns (address) {
+    address from = _ownerOf(tokenId);
+
+    // Allow minting (from = address(0)) and burning (to = address(0))
+    // But prevent transfers between non-zero addresses
+    if (from != address(0) && to != address(0)) {
+        revert("Non-transferable: Ticket cannot be transferred");
+    }
+
+    return super._update(to, tokenId, auth);
+}
+```
+
+This approach ensures tickets remain with their original purchasers, effectively eliminating secondary markets and unauthorized reselling.
+
+```solidity
+function createTicket(
+    uint256 _eventId,
+    LibTypes.PaidTicketCategory _category,
+    uint256 _ticketFee,
+    string memory _ticketUri
+) external nonReentrant returns (bool success_)
+```
+
+The platform stores ticket information in dedicated structures and provides methods to track the ticket types owned by users.
+
+### Stablecoin Management System
+
+The platform supports multiple ERC20 stablecoins for payments, with the following functionality:
+
+- Adding supported tokens (admin only)
+- Removing supported tokens (admin only)
+- Checking if a token is supported
+- Getting the list of all supported tokens
+
+```solidity
+function addSupportedToken(address _tokenAddress) external onlyOwner returns (bool success)
+function removeSupportedToken(address _tokenAddress) external onlyOwner returns (bool success)
+function isTokenSupported(address _tokenAddress) external view returns (bool isSupported)
+function getSupportedTokens() external view returns (address[] memory tokens)
+```
+
+This allows for flexibility in payment options while maintaining control over which stablecoins are accepted.
+
+### Staking & Merkle-based Attendance System
+
+The platform's staking mechanism has been updated to include a reputation system:
+
+- New organizers provide a fixed initial stake (10e6 units of the stablecoin) when creating a paid event
+- Additional stake is calculated when creating the first ticket, requiring 20% of expected revenue, with adjustments based on reputation
+- New organizers face a 10% penalty, increasing their required stake
+- Successful events earn organizers a 5% discount on future stakes, up to a maximum of 15%
+- The stake serves as economic collateral for potential refunds if an event is determined to be fraudulent
+
+Attendance verification uses a Merkle tree system that provides cryptographic proof of attendance:
+
+1. Organizers set a Merkle root for attendees using `setEventMerkleRoot()`
+2. Attendees verify their attendance by providing a valid Merkle proof using `verifyAttendance()`
+3. The platform can check if an address is whitelisted using `isAddressWhitelisted()`
+
+```solidity
+function setEventMerkleRoot(uint256 _eventId, bytes32 _merkleRoot) external
+function verifyAttendance(uint256 _eventId, bytes32[] calldata _merkleProof) external
+function isAddressWhitelisted(uint256 _eventId, address _address, bytes32[] calldata _merkleProof) external view returns (bool)
+```
+
+This verification system increases the integrity of attendance tracking, which is crucial for determining event success rates and processing revenue release.
+
+### Flagging & Dispute Resolution
+
+The platform implements a straightforward system to handle disputes:
+
+#### Flagging System
+
+Attendees can flag events as fraudulent after they end, with these key characteristics:
+
+- Flags must be raised within a defined period after the event (4 days as defined in LibConstants.FLAGGING_PERIOD)
+- Each flag requires a reason explaining why the event is considered fraudulent
+- Only users who purchased a ticket can flag an event
+- Currently, all flags have equal weight (1)
+
+```solidity
+function flagEvent(uint256 _eventId, string calldata _reason) external
+```
+
+#### Dispute Resolution
+
+The dispute resolution process includes:
+
+1. **Attendance-based checks**: Events with attendance rate below 60% require waiting through the flagging period
+2. **Flag percentage threshold**: If the flagged percentage exceeds 70% of users who did not verify attendance, revenue cannot be automatically released
+3. **Manual review request**: Organizers can request manual review and provide evidence to contest flags
+4. **Admin decision**: The platform owner can confirm events as scams after investigation, with a 30-day window for confirmation
+
+```solidity
+function requestManualReview(uint256 _eventId, string calldata _explanation) external
+function confirmEventAsScam(uint256 _eventId, string calldata _details) external
+```
+
+## Revenue Management
+
+Revenue from ticket sales is held in escrow until the event concludes successfully. The current release logic includes:
+
+- Event must have ended
+- If attendance rate is below minimum threshold (60% as defined in LibConstants.MINIMUM_ATTENDANCE_RATE), there's a waiting period (flagging period)
+- Flagging threshold must not be exceeded
+- Revenue must not have been already released
+- Event must not be confirmed as a scam
+
+Service fees are applied as follows:
+
+- For paid events: 5% of total revenue
+- For free events with attendance above threshold: Base fee with multiplier based on attendance
+
+The system provides several revenue-related functions:
+
+```solidity
+function releaseRevenue(uint256 _eventId) external nonReentrant
+function manualReleaseRevenue(uint256 _eventId) external
+function checkReleaseStatus(uint256 _eventId) external view returns (bool canRelease, uint8 reason)
+function canReleaseRevenue(uint256 _eventId) external view returns (bool canRelease, uint256 attendanceRate, uint256 revenue)
+```
+
+For events confirmed as scams, a refund mechanism exists:
+
+```solidity
+function claimScamEventRefund(uint256 _eventId) external nonReentrant
+function checkRefundEligibility(uint256 _eventId, address _user) external view returns (bool canClaim, uint256 refundAmount, bool alreadyClaimed)
+```
+
+When an event is confirmed as a scam:
+
+1. The platform takes 10% of the staked amount as a platform fee
+2. The remaining 90% is divided among ticket holders
+3. Ticket holders can also get refunds of their ticket purchase amounts
+
+## Platform Constants
+
+The platform behavior is governed by several constants defined in LibConstants:
+
+- `MINIMUM_ATTENDANCE_RATE`: 60% of registered attendees must verify their attendance for automatic revenue release
+- `FLAGGING_THRESHOLD`: 70% of the remaining percentage of people who did not verify attendance (specialized calculation)
+- `FLAGGING_PERIOD`: Period after event when flags can be submitted (4 days)
+- `SCAM_CONFIRM_PERIOD`: Period during which an event can be confirmed as a scam (30 days)
+- `FREE_TICKET_PRICE`: Fixed at 0
+- `PAID_EVENT_SERVICE_FEE_PERCENT`: 5% of total event revenue
+- `FREE_EVENT_SERVICE_FEE_BASE`: Base fee for free events (2.5 USD equivalent)
+- `FREE_EVENT_ATTENDEE_THRESHOLD`: Threshold for free event attendance (50 attendees)
+- `STAKE_PERCENTAGE`: 20% of expected revenue must be staked
+- `PLATFORM_FEE_PERCENTAGE`: 10% of stake is taken by platform for scam events
+
+### Reputation System Constants
+
+- `NEW_ORGANIZER_PENALTY`: Additional 10% stake requirement for new organizers
+- `REPUTATION_DISCOUNT_FACTOR`: 5% stake discount per successful event
+- `MAX_REPUTATION_DISCOUNT`: Maximum stake discount capped at 15%
+
+## Ticket City Process Flow
 
 ```mermaid
 graph TD
-    A[Attendee] -->|Sends ETN| B[Ticket_City Contract]
+   subgraph "Event Creation Flow"
+   A[Organizer] -->|Creates Event with<br>ERC20 stablecoin| B[Ticket_City Contract]
+   B -->|Collects Initial Stake| C[Stake Management]
+   B -->|Creates Event Record| D[Event Storage]
+   A -->|Creates Tickets| B
+   B -->|Deploys| E[Soulbound NFT Contract]
+   B -->|Sets| F[Ticket Types]
+   F -->|FREE| G[Single Ticket Type]
+   F -->|PAID| H[Regular/VIP Options]
+   B -->|Collects Additional Stake<br>Based on Reputation| C
+end
+```
+
+## Ticket Purchase Flow
+
+```mermaid
+graph TD
+    A[Attendee] -->|Sends Stablecoin| B[Ticket_City Contract]
     B -->|Validates Payment| C[Payment Validation]
-    C -->|Success| D[Mint NFT Ticket]
+    C -->|Success| D[Mint Soulbound NFT Ticket]
     D -->|Updates| E[Event Records]
+    D -->|Adds to| F[Revenue Escrow]
 ```
 
-#### Authentication Flow
+## Attendance Verification Flow
 
-- Web2-like auth flow during which an embedded evm wallet will be created for the users
-- A web3 auth for guest users
-
-### Key Features Implementations
-
-- Event creation with flexible ticket types (FREE/PAID)
-- Ticket categories: Regular and VIP for paid events
-- Revenue management through ETN native token
-- Attendance tracking and verification system
-- Tickets issued as NFTs for security
-- Automated ticket pricing based on demand (Future Implementation)
-- Event discovery tools, including referral programs and discount codes (Future Implementation)
-- Stablecoins payment (Future Implementation)
-
-### Payments & Refunds
-
-- Tickets purchased using ETN
-- Organizers pay a small platform service fee (30 ETN) for paid events
-- Ticket payments held safely until the event ends
-- If an event is canceled, attendees get a refund plus a 2 ETN gas fee compensation from the organiser (Future Implementation)
-
-### Revenue Management
-
-- ETN payments held in contract
-- 60% minimum attendance requirement
-- Automated revenue release post-event
-- Manual release option for owner
-
-### Event Verification System
-
-- Attendance tracked through QR codes or wallet authentication
-- Attendee-controlled attendance marking
-- Bulk verification support by an attendee that registered for others (Future Implementation)
-- Attendance rate calculation
-- Revenue release conditions
-
-## Contract Constants
-
-- `FREE_TICKET_PRICE`: 0 ETN
-- `MINIMUM_ATTENDANCE_RATE`: 60%
-
-## Error Handling
-
-- Custom errors for gas optimization
-- Comprehensive validation checks
-- Secure payment processing
-
-## Development Environment
-
-### Prerequisites
-
-- Node.js (v16 or higher)
-- npm or yarn
-- Git
-- Alchemy API key for Electroneum Testnet access
-
-### Project Setup
-
-```bash
-# Clone repository
-git clone https://github.com/CityBlockLab/Ticket_City_Smart_Contract
-cd Ticket_City_Smart_Contract
-
-# Install dependencies
-yarn
-
-# Copy environment file
-check hardhat config file...
+```mermaid
+graph TD
+    A[Organizer] -->|Sets Merkle Root| B[Ticket_City Contract]
+    C[Attendee] -->|Provides Merkle Proof| B
+    B -->|Verifies Proof| D[Validation Logic]
+    D -->|Valid| E[Mark Attendance Verified]
+    D -->|Invalid| F[Reject Verification]
+    E -->|Updates| G[Attendance Metrics]
 ```
 
-## Development Workflow
+## Revenue Release Flow
 
-### Common Commands
-
-```bash
-# Compile contracts
-npx hardhat compile
-
-# Clean artifacts
-npx hardhat clean
-
-# Run local node
-npx hardhat node
+```mermaid
+    graph TD
+    A[Event Ends] -->|Starts| B[Waiting Period]
+    B -->|Check| C{Attendance Rate ≥ 60%?}
+    C -->|Yes| D{Flagging Threshold Met?}
+    C -->|No| E{Flagging Period Ended?}
+    E -->|Yes| D
+    E -->|No| F[Cannot Release Yet]
+    D -->|No| G[Release Revenue to Organizer]
+    D -->|Yes| H[Revenue Locked for Review]
+    H -->|Owner Reviews| I{Confirm as Scam?}
+    I -->|Yes| J[Enable Refunds]
+    I -->|No| G
 ```
 
-## Contributing Guidelines
+## Flagging and Dispute Flow
 
-### Issue Management
-
-1. **Creating Issues**
-
-   - Use provided issue templates
-   - Tag with appropriate labels
-   - Include detailed description
-   - Tag repository @devbigeazi
-
-2. **Picking Issues**
-   - Comment on the issue you want to work on
-   - Wait for assignment
-   - Tag repository @devbigeazi
-
-### Branch Management
-
-```bash
-# Create new feature branch
-git checkout -b feature/issue-number-description
-
-# Create new bugfix branch
-git checkout -b fix/issue-number-description
-
-# Create new documentation branch
-git checkout -b docs/issue-number-description
+```mermaid
+graph TD
+    A[Attendee] -->|Flags Event| B[Ticket_City Contract]
+    B -->|Stores Flag| C[Flag Storage]
+    D[Organizer] -->|Requests Review| E[Manual Review Process]
+    E -->|Platform Owner Reviews| F{Decision}
+    F -->|Legitimate Event| G[Manual Revenue Release]
+    F -->|Scam Confirmed| H[Enable Refunds]
+    H -->|Attendees Claim| I[Refund Distribution]
 ```
 
-### Pull Request Process
+## Reputation System Flow
 
-1. **Before Submitting**
+```mermaid
+graph TD
+    A[New Organizer] -->|Creates First Event| B[+10% Stake Penalty]
+    C[Successful Event] -->|Improves Reputation| D[Earn 5% Discount]
+    D -->|Up to Maximum| E[15% Maximum Discount]
+    F[Scam Event] -->|Damages Reputation| G[Blacklisted]
+```
 
-   - Run tests: `npx hardhat test`
-   - Generate coverage: `npx hardhat coverage`
-   - Update documentation if needed
-   - Ensure clean compilation
+### For Event Organizers
 
-2. **Submission Requirements**
+1. **Create an event** by providing details and paying an initial stake
+2. **Create ticket types** for the event (FREE, REGULAR, VIP)
+3. **Set the Merkle root** for attendance verification
+4. **Monitor attendance** as the event progresses
+5. **Release revenue** after the event concludes successfully or **dispute flags** if necessary
 
-   - Link related issue(s)
-   - Provide detailed description
-   - Include test results
-   - Tag repository owner
+### For Attendees
 
-3. **Review Process**
-   - Address review comments
-   - Update PR as needed
-   - Maintain communication
+1. **Purchase tickets** for desired events
+2. **Attend the event** and verify attendance with Merkle proof
+3. **Flag events** if they were fraudulent or didn't deliver as promised
+4. **Claim refunds** if the event is confirmed as a scam
 
-### Code Standards
+### For Platform Owner
 
-- Follow Solidity style guide
-- Use NatSpec comments
-- Implement proper error handling
-- Maintain test coverage
-- Follow gas optimization practices
+1. **Manage supported stablecoins** by adding or removing ERC20 tokens
+2. **Review flagged events** requiring manual validation
+3. **Confirm or reject** events as scams based on evidence
+4. **Manually release revenue** in special cases
+5. **Transfer ownership** of the platform if needed
 
-## Security Considerations
+## Upgrade Considerations
 
-1. **Access Control**
+Since the system follows the Diamond Proxy pattern, the following upgrade considerations apply:
 
-   - Implement role-based access
-   - Use OpenZeppelin's Ownable where appropriate
-   - Validate all inputs
+1. New facets can be added to extend functionality
+2. Existing facets can be upgraded to fix bugs or enhance features
+3. Storage layout must be preserved across upgrades
+4. Access control should be carefully managed, with only authorized addresses allowed to perform upgrades
 
-2. **Payment Handling**
+## Security Measures
 
-   - Use pull over push payments
-   - Implement reentrancy guards
-   - Handle edge cases
+The platform implements several security measures:
 
-3. **Smart Contract Security**
-   - Follow SCSVS guidelines
-   - Implement emergency stops
-   - Document assumptions
-   - Consider gas limitations
+- `ReentrancyGuard` to prevent reentrancy attacks
+- Validation checks for all inputs
+- Economic incentives aligned with honest behavior
+- Timelocks and waiting periods before sensitive actions
+- Error handling with custom error types
+- Merkle proofs for secure attendance verification
+- SafeERC20 for secure token transfers
 
-## Support and Resources
+## Future Extensions
 
-- GitHub Issues: Technical problems and bug reports
-- Telegram Community: General discussion and support
-- Documentation: Comprehensive guides and references
-- Security: Private disclosure process for vulnerabilities
+The system is designed to be extensible with potential future features including:
 
-For additional support or questions:
+- Enhanced reputation system with more granular rewards and penalties
+- Integration with external identity verification systems
+- Enhanced analytics and reporting features
+- Support for recurring events and subscription models
+- Secondary market functionality with controlled resale parameters
+- Cross-chain deployment support
 
-1. Check existing documentation
-2. Search closed issues
-3. Join Telegram community
-4. Contact @devbigeazi
+## Conclusion
 
-All tests passed
-<img width="641" alt="test" src="https://github.com/user-attachments/assets/e4904db0-bb9d-4452-8b9b-c4286bdd42e6" />
+Ticket City leverages blockchain technology and the Diamond Proxy pattern to create a robust, upgradeable platform for ticketing that addresses the common issues of fraud, scalping, and lack of transparency in the traditional ticketing industry.
+
+The platform's implementation of soulbound NFT tickets forms a critical anti-scalping measure, as these non-transferable tokens ensure that tickets cannot be resold on secondary markets, maintaining fair access and pricing for all attendees. This represents a significant improvement over both traditional ticketing systems and earlier blockchain ticketing platforms that used transferable tokens.
+
+The reputation system enhances trust by incentivizing organizers to build a positive track record through successful events, with tangible benefits in reduced stake requirements. New organizers face higher stake requirements until they prove their reliability, creating a balanced ecosystem that protects attendees while allowing legitimate organizers to flourish.
+
+Through its combination of soulbound NFTs, stablecoin payments, and mechanisms like staking, flagging, and dispute resolution, Ticket City aligns incentives to encourage honest behavior from all participants while providing the security and transparency benefits of blockchain technology.
