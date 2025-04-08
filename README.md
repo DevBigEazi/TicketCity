@@ -23,7 +23,7 @@ The platform has been implemented using the Diamond Proxy pattern for enhanced m
 
 ### Trust & Security Mechanisms
 
-- **Staking System**: Event organizers provide an initial stake when creating paid events, with additional stake required when creating tickets. The stake amount is calculated based on ticket price and expected attendance.
+- **Staking System**: Event organizers provide an initial stake when creating paid events, with additional stake required when creating tickets. The stake amount is calculated based on ticket price and expected attendance, with 20% of expected revenue required as stake.
 - **Merkle-based Attendance Verification**: Organizers set a Merkle root for attendees, and attendees verify their presence by providing a valid Merkle proof.
 - **Flagging System**: Ticket holders can flag events as fraudulent after they end, providing reasons for the flag. There is a 4-day flagging period after event conclusion.
 - **Dispute Resolution**: Organizers can request manual review with explanations if their event is heavily flagged. The platform owner can manually confirm events as scams after investigation.
@@ -80,7 +80,7 @@ Events in Ticket City are created by organizers who define parameters such as:
 - Ticket type (FREE or PAID)
 - Payment stablecoin (for PAID events)
 
-For PAID events, organizers must provide an initial minimal stake, with additional stake required when creating tickets. This stake amount varies based on the organizer's reputation score and past performance.
+For PAID events, organizers must provide an initial minimal stake of 10 USDC (10e6 in smallest units), with additional stake required when creating tickets. This stake amount varies based on the organizer's reputation score and past performance.
 
 ```solidity
 function createEvent(
@@ -159,10 +159,12 @@ This allows for flexibility in payment options while maintaining control over wh
 
 ### Staking & Merkle-based Attendance System
 
-The platform's staking mechanism has been simplified in the current implementation:
+The platform's staking mechanism has been updated to include a reputation system:
 
 - New organizers provide a fixed initial stake (10e6 units of the stablecoin) when creating a paid event
-- Additional stake is calculated when creating the first ticket, based on expected attendance and ticket price
+- Additional stake is calculated when creating the first ticket, requiring 20% of expected revenue, with adjustments based on reputation
+- New organizers face a 10% penalty, increasing their required stake
+- Successful events earn organizers a 5% discount on future stakes, up to a maximum of 15%
 - The stake serves as economic collateral for potential refunds if an event is determined to be fraudulent
 
 Attendance verification uses a Merkle tree system that provides cryptographic proof of attendance:
@@ -200,10 +202,10 @@ function flagEvent(uint256 _eventId, string calldata _reason) external
 
 The dispute resolution process includes:
 
-1. **Attendance-based checks**: Events with attendance rate below 70% require waiting through the flagging period
+1. **Attendance-based checks**: Events with attendance rate below 60% require waiting through the flagging period
 2. **Flag percentage threshold**: If the flagged percentage exceeds 70% of users who did not verify attendance, revenue cannot be automatically released
 3. **Manual review request**: Organizers can request manual review and provide evidence to contest flags
-4. **Admin decision**: The platform owner can confirm events as scams after investigation
+4. **Admin decision**: The platform owner can confirm events as scams after investigation, with a 30-day window for confirmation
 
 ```solidity
 function requestManualReview(uint256 _eventId, string calldata _explanation) external
@@ -215,10 +217,15 @@ function confirmEventAsScam(uint256 _eventId, string calldata _details) external
 Revenue from ticket sales is held in escrow until the event concludes successfully. The current release logic includes:
 
 - Event must have ended
-- If attendance rate is below minimum threshold (70% as defined in LibConstants.MINIMUM_ATTENDANCE_RATE), there's a waiting period (flagging period)
+- If attendance rate is below minimum threshold (60% as defined in LibConstants.MINIMUM_ATTENDANCE_RATE), there's a waiting period (flagging period)
 - Flagging threshold must not be exceeded
 - Revenue must not have been already released
 - Event must not be confirmed as a scam
+
+Service fees are applied as follows:
+
+- For paid events: 5% of total revenue
+- For free events with attendance above threshold: Base fee with multiplier based on attendance
 
 The system provides several revenue-related functions:
 
@@ -238,7 +245,7 @@ function checkRefundEligibility(uint256 _eventId, address _user) external view r
 
 When an event is confirmed as a scam:
 
-1. The platform takes 10% of the staked amount
+1. The platform takes 10% of the staked amount as a platform fee
 2. The remaining 90% is divided among ticket holders
 3. Ticket holders can also get refunds of their ticket purchase amounts
 
@@ -246,29 +253,42 @@ When an event is confirmed as a scam:
 
 The platform behavior is governed by several constants defined in LibConstants:
 
-- `MINIMUM_ATTENDANCE_RATE`: 70% of registered attendees must verify their attendance for automatic revenue release
+- `MINIMUM_ATTENDANCE_RATE`: 60% of registered attendees must verify their attendance for automatic revenue release
 - `FLAGGING_THRESHOLD`: 70% of the remaining percentage of people who did not verify attendance (specialized calculation)
 - `FLAGGING_PERIOD`: Period after event when flags can be submitted (4 days)
 - `SCAM_CONFIRM_PERIOD`: Period during which an event can be confirmed as a scam (30 days)
 - `FREE_TICKET_PRICE`: Fixed at 0
+- `PAID_EVENT_SERVICE_FEE_PERCENT`: 5% of total event revenue
+- `FREE_EVENT_SERVICE_FEE_BASE`: Base fee for free events (2.5 USD equivalent)
+- `FREE_EVENT_ATTENDEE_THRESHOLD`: Threshold for free event attendance (50 attendees)
+- `STAKE_PERCENTAGE`: 20% of expected revenue must be staked
+- `PLATFORM_FEE_PERCENTAGE`: 10% of stake is taken by platform for scam events
+
+### Reputation System Constants
+
+- `NEW_ORGANIZER_PENALTY`: Additional 10% stake requirement for new organizers
+- `REPUTATION_DISCOUNT_FACTOR`: 5% stake discount per successful event
+- `MAX_REPUTATION_DISCOUNT`: Maximum stake discount capped at 15%
 
 ## Ticket City Process Flow
- ```mermaid
+
+```mermaid
 graph TD
-    subgraph "Event Creation Flow"
-    A[Organizer] -->|Creates Event with<br>ERC20 stablecoin| B[Ticket_City Contract]
-    B -->|Collects Initial Stake| C[Stake Management]
-    B -->|Creates Event Record| D[Event Storage]
-    A -->|Creates Tickets| B
-    B -->|Deploys| E[Soulbound NFT Contract]
-    B -->|Sets| F[Ticket Types]
-    F -->|FREE| G[Single Ticket Type]
-    F -->|PAID| H[Regular/VIP Options]
-    B -->|Collects Additional Stake| C
+   subgraph "Event Creation Flow"
+   A[Organizer] -->|Creates Event with<br>ERC20 stablecoin| B[Ticket_City Contract]
+   B -->|Collects Initial Stake| C[Stake Management]
+   B -->|Creates Event Record| D[Event Storage]
+   A -->|Creates Tickets| B
+   B -->|Deploys| E[Soulbound NFT Contract]
+   B -->|Sets| F[Ticket Types]
+   F -->|FREE| G[Single Ticket Type]
+   F -->|PAID| H[Regular/VIP Options]
+   B -->|Collects Additional Stake<br>Based on Reputation| C
 end
 ```
 
 ## Ticket Purchase Flow
+
 ```mermaid
 graph TD
     A[Attendee] -->|Sends Stablecoin| B[Ticket_City Contract]
@@ -279,6 +299,7 @@ graph TD
 ```
 
 ## Attendance Verification Flow
+
 ```mermaid
 graph TD
     A[Organizer] -->|Sets Merkle Root| B[Ticket_City Contract]
@@ -290,10 +311,11 @@ graph TD
 ```
 
 ## Revenue Release Flow
+
 ```mermaid
     graph TD
     A[Event Ends] -->|Starts| B[Waiting Period]
-    B -->|Check| C{Attendance Rate ≥ 70%?}
+    B -->|Check| C{Attendance Rate ≥ 60%?}
     C -->|Yes| D{Flagging Threshold Met?}
     C -->|No| E{Flagging Period Ended?}
     E -->|Yes| D
@@ -306,6 +328,7 @@ graph TD
 ```
 
 ## Flagging and Dispute Flow
+
 ```mermaid
 graph TD
     A[Attendee] -->|Flags Event| B[Ticket_City Contract]
@@ -315,6 +338,16 @@ graph TD
     F -->|Legitimate Event| G[Manual Revenue Release]
     F -->|Scam Confirmed| H[Enable Refunds]
     H -->|Attendees Claim| I[Refund Distribution]
+```
+
+## Reputation System Flow
+
+```mermaid
+graph TD
+    A[New Organizer] -->|Creates First Event| B[+10% Stake Penalty]
+    C[Successful Event] -->|Improves Reputation| D[Earn 5% Discount]
+    D -->|Up to Maximum| E[15% Maximum Discount]
+    F[Scam Event] -->|Damages Reputation| G[Blacklisted]
 ```
 
 ### For Event Organizers
@@ -378,6 +411,6 @@ Ticket City leverages blockchain technology and the Diamond Proxy pattern to cre
 
 The platform's implementation of soulbound NFT tickets forms a critical anti-scalping measure, as these non-transferable tokens ensure that tickets cannot be resold on secondary markets, maintaining fair access and pricing for all attendees. This represents a significant improvement over both traditional ticketing systems and earlier blockchain ticketing platforms that used transferable tokens.
 
-Simultaneously, the exclusive use of ERC20 stablecoins for all payments provides price stability in a typically volatile cryptocurrency environment, making the platform more accessible to mainstream users and event organizers who may be concerned about price fluctuations. This stablecoin implementation also enables more predictable revenue planning for event organizers.
+The reputation system enhances trust by incentivizing organizers to build a positive track record through successful events, with tangible benefits in reduced stake requirements. New organizers face higher stake requirements until they prove their reliability, creating a balanced ecosystem that protects attendees while allowing legitimate organizers to flourish.
 
 Through its combination of soulbound NFTs, stablecoin payments, and mechanisms like staking, flagging, and dispute resolution, Ticket City aligns incentives to encourage honest behavior from all participants while providing the security and transparency benefits of blockchain technology.

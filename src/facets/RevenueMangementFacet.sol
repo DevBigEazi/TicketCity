@@ -22,6 +22,43 @@ contract RevenueManagementFacet is ReentrancyGuard {
     using LibErrors for *;
 
     /**
+     * @dev Checks if flagging threshold is met based on the 70% of non-verified attendees formula
+     * @param _eventId The ID of the event to check
+     * @return isFlaggingThresholdMet True if flagging threshold is met
+     */
+    function handleIsFlaggingThresholdMet(
+        uint256 _eventId
+    ) internal view returns (bool) {
+        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
+        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
+
+        // If no one registered, can't be flagged
+        if (eventDetails.userRegCount == 0) {
+            return false;
+        }
+
+        // Calculate the number of non-verified attendees
+        uint256 nonVerifiedCount = 0;
+        if (eventDetails.userRegCount > eventDetails.verifiedAttendeesCount) {
+            nonVerifiedCount =
+                eventDetails.userRegCount -
+                eventDetails.verifiedAttendeesCount;
+        }
+
+        // If everyone verified attendance, no flagging threshold can be met
+        if (nonVerifiedCount == 0) {
+            return false;
+        }
+
+        // Calculate the threshold count - 70% of non-verified attendees
+        uint256 thresholdCount = (nonVerifiedCount *
+            LibConstants.FLAGGING_THRESHOLD) / 100;
+
+        // Check if the actual flag count exceeds the threshold
+        return s.totalFlagsCount[_eventId] >= thresholdCount;
+    }
+
+    /**
      * @dev Releases event revenue to the organizer in ERC20 tokens
      */
     function releaseRevenue(uint256 _eventId) external nonReentrant {
@@ -56,7 +93,7 @@ contract RevenueManagementFacet is ReentrancyGuard {
         bool isFlaggingThresholdMet = handleIsFlaggingThresholdMet(_eventId);
 
         if (
-            attendanceRate < LibConstants.MINIMUM_ATTENDEE_RATE &&
+            attendanceRate < LibConstants.MINIMUM_ATTENDANCE_RATE &&
             !isAfterFlaggingPeriod
         ) {
             revert("Low attendance rate: Must wait 4 days after event ends");

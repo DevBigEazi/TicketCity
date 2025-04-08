@@ -15,7 +15,7 @@ library LibConstants {
     uint256 constant PAID_EVENT_SERVICE_FEE_PERCENT = 5; // 5% of event total revenue
     // Flagging threshold for calculating fraud potential
     uint256 constant FLAGGING_THRESHOLD = 70; // This is used in a calculation where we check if flags exceed 70% of non-verified attendees
-    uint256 constant SCAM_CONFIRM_PERIOD = 30 days; // 7 day waiting period after event ends
+    uint256 constant SCAM_CONFIRM_PERIOD = 30 days;
     uint256 constant STAKE_PERCENTAGE = 20; // 20% of expected revenue must be staked
     uint256 constant FLAGGING_PERIOD = 4 days;
     uint256 constant PLATFORM_FEE_PERCENTAGE = 10;

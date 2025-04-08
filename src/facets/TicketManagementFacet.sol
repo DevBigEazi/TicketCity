@@ -26,6 +26,24 @@ contract TicketManagementFacet is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     /**
+     * @dev Set the Merkle root for an event's attendees
+     * @param _eventId The ID of the event
+     * @param _merkleRoot The Merkle root hash of all attendees
+     */
+    function setEventMerkleRoot(
+        uint256 _eventId,
+        bytes32 _merkleRoot
+    ) external {
+        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
+
+        LibUtils._validateEventAndOrganizer(_eventId);
+
+        s.eventMerkleRoots[_eventId] = _merkleRoot;
+
+        emit LibEvents.MerkleRootSet(_eventId, _merkleRoot);
+    }
+
+    /**
      * @dev Creates a new NFT ticket contract for an event
      * @param _eventId The ID of the event
      * @param _ticketFee The price of the ticket

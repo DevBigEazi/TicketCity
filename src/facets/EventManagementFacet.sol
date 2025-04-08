@@ -25,7 +25,7 @@ contract EventManagementFacet is ReentrancyGuard {
     /**
      * @dev Creates a new event with staking requirement
      * @param _title Event title
-     * @param _desc Event description
+     * @param _desc Event title
      * @param _imageUri URI of the event image
      * @param _location Event location
      * @param _startDate Event start timestamp
@@ -108,7 +108,6 @@ contract EventManagementFacet is ReentrancyGuard {
 
         LibTypes.EventDetails storage eventDetails = s.events[eventId];
         eventDetails.title = _title;
-        eventDetails.desc = _desc;
         eventDetails.imageUri = _imageUri;
         eventDetails.location = _location;
         eventDetails.startDate = _startDate;
@@ -144,24 +143,6 @@ contract EventManagementFacet is ReentrancyGuard {
         );
 
         return eventId;
-    }
-
-    /**
-     * @dev Set the Merkle root for an event's attendees
-     * @param _eventId The ID of the event
-     * @param _merkleRoot The Merkle root hash of all attendees
-     */
-    function setEventMerkleRoot(
-        uint256 _eventId,
-        bytes32 _merkleRoot
-    ) external {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
-        LibUtils._validateEventAndOrganizer(_eventId);
-
-        s.eventMerkleRoots[_eventId] = _merkleRoot;
-
-        emit LibEvents.MerkleRootSet(_eventId, _merkleRoot);
     }
 
     /**
