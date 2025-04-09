@@ -27,12 +27,12 @@ library LibTypes {
         uint256 expectedAttendees;
         uint256 userRegCount;
         uint256 verifiedAttendeesCount;
-        TicketType ticketType;
-        PaidTicketCategory paidTicketCategory;
-        address ticketNFTAddr;
         uint256 ticketFee;
+        address ticketNFTAddr;
         address organiser;
         address paymentToken;
+        TicketType ticketType;
+        PaidTicketCategory paidTicketCategory;
     }
 
     struct TicketTypes {

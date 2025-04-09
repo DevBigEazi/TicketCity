@@ -20,6 +20,7 @@ contract RevenueManagementFacet is ReentrancyGuard {
     using SafeERC20 for IERC20;
     using LibTypes for *;
     using LibErrors for *;
+    using LibUtils for *;
 
     /**
      * @dev Checks if flagging threshold is met based on the 70% of non-verified attendees formula
@@ -74,7 +75,8 @@ contract RevenueManagementFacet is ReentrancyGuard {
         }
         if (s.revenueReleased[_eventId])
             revert LibErrors.RevenueAlreadyReleased();
-        if (s.eventConfirmedScam[_eventId]) revert("Event confirmed as scam");
+        if (s.eventConfirmedScam[_eventId])
+            revert LibErrors.EventConfirmedAsScam();
 
         uint256 revenue = s.organiserRevBal[eventDetails.organiser][_eventId];
         if (revenue == 0) revert LibErrors.NoRevenueToRelease();
@@ -95,12 +97,10 @@ contract RevenueManagementFacet is ReentrancyGuard {
         if (
             attendanceRate < LibConstants.MINIMUM_ATTENDANCE_RATE &&
             !isAfterFlaggingPeriod
-        ) {
-            revert("Low attendance rate: Must wait 4 days after event ends");
-        }
-        if (isFlaggingThresholdMet) {
-            revert("Event has been flagged by attendees");
-        }
+        ) revert LibErrors.LowAttendanceRateWaitingPeriod();
+
+        if (isFlaggingThresholdMet)
+            revert LibErrors.EventHasBeenFlaggedByAttendees();
 
         // Calculate and deduct platform fees
         uint256 serviceFee;
@@ -136,6 +136,7 @@ contract RevenueManagementFacet is ReentrancyGuard {
             s.platformRevenue += serviceFee;
         }
         paymentToken.safeTransfer(eventDetails.organiser, revenue);
+        s.organiserTotalRevenue += revenue;
 
         // Update organizer reputation
         s.organizerSuccessfulEvents[eventDetails.organiser]++;
@@ -156,9 +157,12 @@ contract RevenueManagementFacet is ReentrancyGuard {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
-        require(s.eventConfirmedScam[_eventId], "Event not confirmed as scam");
-        require(s.hasRegistered[msg.sender][_eventId], "Not a ticket buyer");
-        require(!s.hasClaimedRefund[msg.sender][_eventId], "Already claimed");
+        if (!s.eventConfirmedScam[_eventId])
+            revert LibErrors.EventNotConfirmedAsScam();
+        if (!s.hasRegistered[msg.sender][_eventId])
+            revert LibErrors.NotTicketBuyer();
+        if (s.hasClaimedRefund[msg.sender][_eventId])
+            revert LibErrors.RefundAlreadyClaimed();
 
         uint256 refundAmount = 0;
         IERC20 paymentToken = IERC20(eventDetails.paymentToken);
@@ -189,10 +193,8 @@ contract RevenueManagementFacet is ReentrancyGuard {
         if (totalRefund > 0) {
             // Check if enough balance in contract
             uint256 contractBalance = paymentToken.balanceOf(address(this));
-            require(
-                contractBalance >= totalRefund,
-                "Insufficient contract balance"
-            );
+            if (contractBalance < totalRefund)
+                revert LibErrors.InsufficientContractBalance();
 
             // Transfer refund
             paymentToken.safeTransfer(msg.sender, totalRefund);
@@ -204,6 +206,58 @@ contract RevenueManagementFacet is ReentrancyGuard {
                 stakeShare
             );
         }
+    }
+
+    /**
+     * @dev Allows contract owner to withdraw platform revenue while maintaining minimum balance
+     * @param _to Address to receive the withdrawn funds
+     * @return success Boolean indicating if the withdrawal was successful
+     */
+    function withdrawPlatformRevenue(
+        address _to,
+        uint24 _tokenIndex
+    ) external payable nonReentrant returns (bool) {
+        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
+
+        // Validate the caller
+        LibUtils.onlyOwner();
+
+        // Validate recipient address
+        if (_to == address(0)) revert LibErrors.AddressZeroDetected();
+
+        // Check if there's revenue to withdraw
+        if (s.platformRevenue == 0) revert LibErrors.NoRevenueToWithdraw();
+
+        // Validate token index
+        if (s.supportedTokensList.length == 0)
+            revert LibErrors.TokenNotSupported();
+        address paymentToken = s.supportedTokensList[_tokenIndex];
+
+        // Check contract balance
+        uint256 contractBalance = IERC20(paymentToken).balanceOf(address(this));
+
+        // Ensure we maintain the minimum required balance
+        if (contractBalance <= LibConstants.MIN_PLATFORM_BALANCE)
+            revert LibErrors.InsufficientContractBalance();
+
+        // Calculate withdrawable amount (total balance minus minimum required)
+        uint256 withdrawableAmount = contractBalance -
+            LibConstants.MIN_PLATFORM_BALANCE;
+
+        // Cap at the recorded platform revenue
+        withdrawableAmount = withdrawableAmount > s.platformRevenue
+            ? s.platformRevenue
+            : withdrawableAmount;
+
+        // Update platform revenue
+        s.platformRevenue -= withdrawableAmount;
+
+        // Transfer funds
+        IERC20(paymentToken).safeTransfer(_to, withdrawableAmount);
+
+        emit LibEvents.PlatformRevenueWithdrawn(_to, withdrawableAmount);
+
+        return true;
     }
 
     /**

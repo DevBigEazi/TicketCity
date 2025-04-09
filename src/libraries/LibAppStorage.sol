@@ -15,6 +15,7 @@ library LibAppStorage {
         uint256 totalTicketCreated;
         uint256 totalPurchasedTicket;
         uint256 platformRevenue;
+        uint256 organiserTotalRevenue;
         // All events array
         LibTypes.EventDetails[] allEvents;
         // Mappings for events and tickets
@@ -44,8 +45,8 @@ library LibAppStorage {
         mapping(address => uint256) organizerSuccessfulEvents;
         mapping(address => uint256) organizerScammedEvents;
         mapping(address => bool) blacklistedOrganizers;
-        // Merkle tree for attendance verification
-        mapping(uint256 => bytes32) eventMerkleRoots;
+        // Attendance verification
+        mapping(uint256 => bytes32) eventVerificationCodes;
         mapping(uint256 => address[]) eventAttendees;
         // Supported tokens system
         mapping(address => bool) supportedTokens;

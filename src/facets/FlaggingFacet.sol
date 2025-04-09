@@ -43,35 +43,42 @@ contract FlaggingFacet is ReentrancyGuard {
             revert LibErrors.FlaggingPeriodEnded();
         }
 
-        // Check if user is a ticket buyer
-        if (!s.hasRegistered[msg.sender][_eventId]) {
-            revert LibErrors.NotRegisteredForEvent();
-        }
-
         // Check if user has already flagged
         if (s.hasFlaggedEvent[msg.sender][_eventId]) {
             revert LibErrors.AlreadyFlagged();
         }
 
-        // Determine flag weight based on ticket type (1 for standard, to be expanded later)
-        uint256 weight = 1;
+        // Check reason length
+        if (bytes(_reason).length > 32) {
+            revert LibErrors.ReasonTooLong();
+        }
 
-        // Mark as flagged and increment count with weight
-        s.hasFlaggedEvent[msg.sender][_eventId] = true;
-        s.flaggingWeight[msg.sender][_eventId] = weight;
-        s.totalFlagsCount[_eventId] += weight;
+        // Check if user is a ticket buyer
+        if (s.hasRegistered[msg.sender][_eventId]) {
+            // Determine flag weight based on ticket type (1 for standard, to be expanded later)
+            uint256 weight = 1;
 
-        // Store reason in flag data
-        LibTypes.FlagData storage newFlag = s.flagData[msg.sender][_eventId];
-        newFlag.evidence = _reason;
-        newFlag.timestamp = block.timestamp;
+            // Mark as flagged and increment count with weight
+            s.hasFlaggedEvent[msg.sender][_eventId] = true;
+            s.flaggingWeight[msg.sender][_eventId] = weight;
+            s.totalFlagsCount[_eventId] += weight;
 
-        emit LibEvents.EventFlagged(
-            _eventId,
-            msg.sender,
-            block.timestamp,
-            weight
-        );
+            // Store reason in flag data
+            LibTypes.FlagData storage newFlag = s.flagData[msg.sender][
+                _eventId
+            ];
+            newFlag.evidence = _reason;
+            newFlag.timestamp = block.timestamp;
+
+            emit LibEvents.EventFlagged(
+                _eventId,
+                msg.sender,
+                block.timestamp,
+                weight
+            );
+        } else {
+            revert LibErrors.NotRegisteredForEvent();
+        }
     }
 
     /**
@@ -173,6 +180,11 @@ contract FlaggingFacet is ReentrancyGuard {
         uint256 revenue = s.organiserRevBal[eventDetails.organiser][_eventId];
         if (revenue == 0) {
             revert LibErrors.NoRevenueToRelease();
+        }
+
+        // Check explanation length
+        if (bytes(_explanation).length > 32) {
+            revert LibErrors.ExplanationTooLong();
         }
 
         // Store explanation
