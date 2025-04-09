@@ -2,7 +2,7 @@
 
 ## Overview
 
-Ticket City is a decentralized ticketing platform built on blockchain technology that aims to solve common problems in the event ticketing industry such as fraud, scalping, and lack of transparency. The platform leverages smart contracts to create a trustless environment where event organizers and attendees can interact with confidence.
+Ticket City is a decentralized ticketing platform built on blockchain technology that addresses common problems in the event ticketing industry such as fraud, scalping, and lack of transparency. The platform leverages smart contracts to create a trustless environment where event organizers and attendees can interact with confidence.
 
 The platform utilizes two key blockchain technologies to enhance security and usability:
 
@@ -20,11 +20,12 @@ The platform has been implemented using the Diamond Proxy pattern for enhanced m
 - **Ticket Types**: Support for different ticket categories (FREE, REGULAR, VIP) with varying price points.
 - **Stablecoin Support**: Multiple ERC20 stablecoins can be supported for payments.
 - **Revenue Management**: Automated release of revenue to organizers after successful events.
+- **ERC20Permit Support**: Enhanced UX with gasless approvals using permit signatures.
 
 ### Trust & Security Mechanisms
 
 - **Staking System**: Event organizers provide an initial stake when creating paid events, with additional stake required when creating tickets. The stake amount is calculated based on ticket price and expected attendance, with 20% of expected revenue required as stake.
-- **Merkle-based Attendance Verification**: Organizers set a Merkle root for attendees, and attendees verify their presence by providing a valid Merkle proof.
+- **Self-Verification**: Attendees verify their attendance by providing a signed message with a verification code displayed at the event.
 - **Flagging System**: Ticket holders can flag events as fraudulent after they end, providing reasons for the flag. There is a 4-day flagging period after event conclusion.
 - **Dispute Resolution**: Organizers can request manual review with explanations if their event is heavily flagged. The platform owner can manually confirm events as scams after investigation.
 - **Reputation Tracking**: The system tracks both successful events and scam events per organizer, which affects future staking requirements.
@@ -36,7 +37,7 @@ The platform has been implemented using the Diamond Proxy pattern for enhanced m
 - **Stablecoin-Based Payments**: Using stablecoins provides price stability and auditability for all transactions.
 - **Simple Flagging Mechanism**: Any ticket holder can flag an event with a reason if they believe it was fraudulent.
 - **Time-Limited Flagging**: Flags must be submitted within 4 days of the event ending.
-- **Attendance Verification**: Merkle-proof based attendance verification ensures only legitimate attendees are counted.
+- **Attendance Verification**: Self-verification system with cryptographic signatures ensures only legitimate attendees are counted.
 
 ## Architecture Overview
 
@@ -83,7 +84,7 @@ Events in Ticket City are created by organizers who define parameters such as:
 For PAID events, organizers must provide an initial minimal stake of 10 USDC (10e6 in smallest units), with additional stake required when creating tickets. This stake amount varies based on the organizer's reputation score and past performance.
 
 ```solidity
-function createEvent(
+function createEventWithPermit(
     string memory _title,
     string memory _desc,
     string memory _imageUri,
@@ -92,7 +93,10 @@ function createEvent(
     uint256 _endDate,
     uint256 _expectedAttendees,
     LibTypes.TicketType _ticketType,
-    IERC20 _paymentToken
+    IERC20Permit _paymentToken,
+    uint8 _v,
+    bytes32 _r,
+    bytes32 _s
 ) external nonReentrant returns (uint256)
 ```
 
@@ -129,11 +133,15 @@ function _update(address to, uint256 tokenId, address auth) internal override re
 This approach ensures tickets remain with their original purchasers, effectively eliminating secondary markets and unauthorized reselling.
 
 ```solidity
-function createTicket(
+function createTicketWithPermit(
     uint256 _eventId,
     LibTypes.PaidTicketCategory _category,
     uint256 _ticketFee,
-    string memory _ticketUri
+    string memory _ticketUri,
+    bytes32 _verificationCode,
+    uint8 _v,
+    bytes32 _r,
+    bytes32 _s
 ) external nonReentrant returns (bool success_)
 ```
 
@@ -149,17 +157,17 @@ The platform supports multiple ERC20 stablecoins for payments, with the followin
 - Getting the list of all supported tokens
 
 ```solidity
-function addSupportedToken(address _tokenAddress) external onlyOwner returns (bool success)
-function removeSupportedToken(address _tokenAddress) external onlyOwner returns (bool success)
+function addSupportedToken(address _tokenAddress) external returns (bool success)
+function removeSupportedToken(address _tokenAddress) external returns (bool success)
 function isTokenSupported(address _tokenAddress) external view returns (bool isSupported)
 function getSupportedTokens() external view returns (address[] memory tokens)
 ```
 
 This allows for flexibility in payment options while maintaining control over which stablecoins are accepted.
 
-### Staking & Merkle-based Attendance System
+### Staking & Attendance Verification System
 
-The platform's staking mechanism has been updated to include a reputation system:
+The platform's staking mechanism includes a reputation system:
 
 - New organizers provide a fixed initial stake (10e6 units of the stablecoin) when creating a paid event
 - Additional stake is calculated when creating the first ticket, requiring 20% of expected revenue, with adjustments based on reputation
@@ -167,16 +175,15 @@ The platform's staking mechanism has been updated to include a reputation system
 - Successful events earn organizers a 5% discount on future stakes, up to a maximum of 15%
 - The stake serves as economic collateral for potential refunds if an event is determined to be fraudulent
 
-Attendance verification uses a Merkle tree system that provides cryptographic proof of attendance:
+Attendance verification uses a cryptographic signature system that provides secure proof of attendance:
 
-1. Organizers set a Merkle root for attendees using `setEventMerkleRoot()`
-2. Attendees verify their attendance by providing a valid Merkle proof using `verifyAttendance()`
-3. The platform can check if an address is whitelisted using `isAddressWhitelisted()`
+1. Organizers set a verification code for attendees using `setEventVerificationCode()`
+2. Attendees verify their attendance by signing a message containing the verification code using `verifyAttendance()`
+3. The platform can check if an address is verified using `isAddressVerified()`
 
 ```solidity
-function setEventMerkleRoot(uint256 _eventId, bytes32 _merkleRoot) external
-function verifyAttendance(uint256 _eventId, bytes32[] calldata _merkleProof) external
-function isAddressWhitelisted(uint256 _eventId, address _address, bytes32[] calldata _merkleProof) external view returns (bool)
+function verifyAttendance(uint256 _eventId, bytes32 _verificationCode, bytes calldata _signature) external
+function isAddressVerified(uint256 _eventId, address _address) external view returns (bool)
 ```
 
 This verification system increases the integrity of attendance tracking, which is crucial for determining event success rates and processing revenue release.
@@ -231,7 +238,6 @@ The system provides several revenue-related functions:
 
 ```solidity
 function releaseRevenue(uint256 _eventId) external nonReentrant
-function manualReleaseRevenue(uint256 _eventId) external
 function checkReleaseStatus(uint256 _eventId) external view returns (bool canRelease, uint8 reason)
 function canReleaseRevenue(uint256 _eventId) external view returns (bool canRelease, uint256 attendanceRate, uint256 revenue)
 ```
@@ -275,10 +281,10 @@ The platform behavior is governed by several constants defined in LibConstants:
 ```mermaid
 graph TD
    subgraph "Event Creation Flow"
-   A[Organizer] -->|Creates Event with<br>ERC20 stablecoin| B[Ticket_City Contract]
+   A[Organizer] -->|Creates Event with<br>ERC20 stablecoin & Permit| B[Ticket_City Contract]
    B -->|Collects Initial Stake| C[Stake Management]
    B -->|Creates Event Record| D[Event Storage]
-   A -->|Creates Tickets| B
+   A -->|Creates Tickets with Permit| B
    B -->|Deploys| E[Soulbound NFT Contract]
    B -->|Sets| F[Ticket Types]
    F -->|FREE| G[Single Ticket Type]
@@ -291,8 +297,8 @@ end
 
 ```mermaid
 graph TD
-    A[Attendee] -->|Sends Stablecoin| B[Ticket_City Contract]
-    B -->|Validates Payment| C[Payment Validation]
+    A[Attendee] -->|Uses Permit for Approval| B[Ticket_City Contract]
+    B -->|Validates Signature| C[Signature Validation]
     C -->|Success| D[Mint Soulbound NFT Ticket]
     D -->|Updates| E[Event Records]
     D -->|Adds to| F[Revenue Escrow]
@@ -302,9 +308,9 @@ graph TD
 
 ```mermaid
 graph TD
-    A[Organizer] -->|Sets Merkle Root| B[Ticket_City Contract]
-    C[Attendee] -->|Provides Merkle Proof| B
-    B -->|Verifies Proof| D[Validation Logic]
+    A[Organizer] -->|Sets Verification Code| B[Ticket_City Contract]
+    C[Attendee] -->|Signs Message with Code| B
+    B -->|Verifies Signature| D[Validation Logic]
     D -->|Valid| E[Mark Attendance Verified]
     D -->|Invalid| F[Reject Verification]
     E -->|Updates| G[Attendance Metrics]
@@ -350,18 +356,39 @@ graph TD
     F[Scam Event] -->|Damages Reputation| G[Blacklisted]
 ```
 
+## ERC20 Permit Integration
+
+The platform integrates ERC20 Permit functionality for enhanced user experience:
+
+- **Gasless Approvals**: Users can sign approval messages off-chain instead of submitting separate approval transactions
+- **Reduced Transaction Steps**: Creating events, tickets, and purchasing tickets now require only one transaction
+- **Streamlined Experience**: Provides a more seamless user experience, especially for new blockchain users
+
+This integration affects multiple facets:
+
+```solidity
+// EventManagementFacet
+function createEventWithPermit(..., uint8 _v, bytes32 _r, bytes32 _s)
+
+// TicketManagementFacet
+function createTicketWithPermit(..., uint8 _v, bytes32 _r, bytes32 _s)
+function purchaseTicketWithPermit(..., uint8 _v, bytes32 _r, bytes32 _s)
+```
+
+## User Guides
+
 ### For Event Organizers
 
-1. **Create an event** by providing details and paying an initial stake
-2. **Create ticket types** for the event (FREE, REGULAR, VIP)
-3. **Set the Merkle root** for attendance verification
+1. **Create an event** by providing details and signing a permit for the initial stake
+2. **Create ticket types** for the event (FREE, REGULAR, VIP) with verification code
+3. **Set the verification code** for attendance verification
 4. **Monitor attendance** as the event progresses
 5. **Release revenue** after the event concludes successfully or **dispute flags** if necessary
 
 ### For Attendees
 
-1. **Purchase tickets** for desired events
-2. **Attend the event** and verify attendance with Merkle proof
+1. **Purchase tickets** for desired events by signing a permit message
+2. **Attend the event** and verify attendance with the verification code
 3. **Flag events** if they were fraudulent or didn't deliver as promised
 4. **Claim refunds** if the event is confirmed as a scam
 
@@ -370,17 +397,8 @@ graph TD
 1. **Manage supported stablecoins** by adding or removing ERC20 tokens
 2. **Review flagged events** requiring manual validation
 3. **Confirm or reject** events as scams based on evidence
-4. **Manually release revenue** in special cases
+4. **Withdraw platform revenue** when needed
 5. **Transfer ownership** of the platform if needed
-
-## Upgrade Considerations
-
-Since the system follows the Diamond Proxy pattern, the following upgrade considerations apply:
-
-1. New facets can be added to extend functionality
-2. Existing facets can be upgraded to fix bugs or enhance features
-3. Storage layout must be preserved across upgrades
-4. Access control should be carefully managed, with only authorized addresses allowed to perform upgrades
 
 ## Security Measures
 
@@ -391,8 +409,9 @@ The platform implements several security measures:
 - Economic incentives aligned with honest behavior
 - Timelocks and waiting periods before sensitive actions
 - Error handling with custom error types
-- Merkle proofs for secure attendance verification
+- Cryptographic signatures for secure attendance verification
 - SafeERC20 for secure token transfers
+- Permit signatures with deadlines to prevent replay attacks
 
 ## Future Extensions
 
@@ -410,6 +429,8 @@ The system is designed to be extensible with potential future features including
 Ticket City leverages blockchain technology and the Diamond Proxy pattern to create a robust, upgradeable platform for ticketing that addresses the common issues of fraud, scalping, and lack of transparency in the traditional ticketing industry.
 
 The platform's implementation of soulbound NFT tickets forms a critical anti-scalping measure, as these non-transferable tokens ensure that tickets cannot be resold on secondary markets, maintaining fair access and pricing for all attendees. This represents a significant improvement over both traditional ticketing systems and earlier blockchain ticketing platforms that used transferable tokens.
+
+With the addition of ERC20 Permit functionality and a simplified verification system, Ticket City now provides an even more user-friendly experience while maintaining strong security guarantees. The permit-based approach reduces transaction steps and gas costs, making the platform more accessible to mainstream users.
 
 The reputation system enhances trust by incentivizing organizers to build a positive track record through successful events, with tangible benefits in reduced stake requirements. New organizers face higher stake requirements until they prove their reliability, creating a balanced ecosystem that protects attendees while allowing legitimate organizers to flourish.
 

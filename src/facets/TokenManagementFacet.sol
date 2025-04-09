@@ -4,6 +4,7 @@ pragma solidity 0.8.26;
 import "../libraries/LibAppStorage.sol";
 import "../libraries/LibDiamond.sol";
 import "../libraries/LibErrors.sol";
+import "../libraries/LibUtils.sol";
 import "../interfaces/IExtendedERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
@@ -13,17 +14,9 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  */
 contract TokenManagementFacet {
     using LibErrors for *;
+    using LibUtils for *;
 
     IERC20 public token;
-
-    /**
-     * @dev Modifier to restrict function access to the contract owner
-     */
-    modifier onlyOwner() {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        if (msg.sender != s.owner) revert LibErrors.OnlyOwnerAllowed();
-        _;
-    }
 
     /**
      * @dev Event emitted when a token is added to supported tokens
@@ -40,8 +33,13 @@ contract TokenManagementFacet {
      * @param _tokenAddress Address of the ERC20 token to add
      * @return success Boolean indicating if the operation was successful
      */
-    function addSupportedToken(address _tokenAddress) external onlyOwner returns (bool success) {
+    function addSupportedToken(
+        address _tokenAddress
+    ) external payable returns (bool success) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
+
+        // Validate the caller
+        LibUtils.onlyOwner();
 
         if (_tokenAddress == address(0)) revert LibErrors.AddressZeroDetected();
         if (s.supportedTokens[_tokenAddress]) {
@@ -58,13 +56,17 @@ contract TokenManagementFacet {
             string memory name;
             string memory symbol;
 
-            try IExtendedERC20(_tokenAddress).name() returns (string memory _name) {
+            try IExtendedERC20(_tokenAddress).name() returns (
+                string memory _name
+            ) {
                 name = _name;
             } catch {
                 name = "???";
             }
 
-            try IExtendedERC20(_tokenAddress).symbol() returns (string memory _symbol) {
+            try IExtendedERC20(_tokenAddress).symbol() returns (
+                string memory _symbol
+            ) {
                 symbol = _symbol;
             } catch {
                 symbol = "???";
@@ -82,30 +84,37 @@ contract TokenManagementFacet {
      * @param _tokenAddress Address of the ERC20 token to remove
      * @return success Boolean indicating if the operation was successful
      */
-    function removeSupportedToken(address _tokenAddress) external onlyOwner returns (bool success) {
+    function removeSupportedToken(
+        address _tokenAddress
+    ) external payable returns (bool success) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
 
+        // Validate the caller
+        LibUtils.onlyOwner();
+
         if (_tokenAddress == address(0)) revert LibErrors.AddressZeroDetected();
-        if (!s.supportedTokens[_tokenAddress]) {
+        if (s.supportedTokens[_tokenAddress]) {
+            // Remove token from mapping
+            s.supportedTokens[_tokenAddress] = false;
+
+            // Remove token from the list
+            for (uint256 i = 0; i < s.supportedTokensList.length; i++) {
+                if (s.supportedTokensList[i] == _tokenAddress) {
+                    // Move the last element to the position of the removed element
+                    s.supportedTokensList[i] = s.supportedTokensList[
+                        s.supportedTokensList.length - 1
+                    ];
+                    // Remove the last element
+                    s.supportedTokensList.pop();
+                    break;
+                }
+            }
+
+            emit TokenRemoved(_tokenAddress);
+            return true;
+        } else {
             revert LibErrors.TokenNotSupported();
         }
-
-        // Remove token from mapping
-        s.supportedTokens[_tokenAddress] = false;
-
-        // Remove token from the list
-        for (uint256 i = 0; i < s.supportedTokensList.length; i++) {
-            if (s.supportedTokensList[i] == _tokenAddress) {
-                // Move the last element to the position of the removed element
-                s.supportedTokensList[i] = s.supportedTokensList[s.supportedTokensList.length - 1];
-                // Remove the last element
-                s.supportedTokensList.pop();
-                break;
-            }
-        }
-
-        emit TokenRemoved(_tokenAddress);
-        return true;
     }
 
     /**
@@ -113,7 +122,9 @@ contract TokenManagementFacet {
      * @param _tokenAddress Address of the ERC20 token to check
      * @return isSupported Boolean indicating if the token is supported
      */
-    function isTokenSupported(address _tokenAddress) external view returns (bool isSupported) {
+    function isTokenSupported(
+        address _tokenAddress
+    ) external view returns (bool isSupported) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         return s.supportedTokens[_tokenAddress];
     }
@@ -122,7 +133,11 @@ contract TokenManagementFacet {
      * @dev Returns the list of all supported tokens
      * @return tokens Array of supported token addresses
      */
-    function getSupportedTokens() external view returns (address[] memory tokens) {
+    function getSupportedTokens()
+        external
+        view
+        returns (address[] memory tokens)
+    {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         return s.supportedTokensList;
     }

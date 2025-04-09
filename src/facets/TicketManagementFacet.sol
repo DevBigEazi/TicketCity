@@ -14,7 +14,8 @@ import "../interfaces/IExtendedERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/cryptography/MerkleProof.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
+import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 /**
  * @title TicketManagementFacet
@@ -24,23 +25,24 @@ contract TicketManagementFacet is ReentrancyGuard {
     using LibTypes for *;
     using LibErrors for *;
     using SafeERC20 for IERC20;
+    using ECDSA for bytes32;
 
     /**
-     * @dev Set the Merkle root for an event's attendees
+     * @dev Set a verification code for an event (optional enhancement)
      * @param _eventId The ID of the event
-     * @param _merkleRoot The Merkle root hash of all attendees
+     * @param _verificationCode A unique code displayed at the event that attendees can use
      */
-    function setEventMerkleRoot(
+    function setEventVerificationCode(
         uint256 _eventId,
-        bytes32 _merkleRoot
-    ) external {
+        bytes32 _verificationCode
+    ) internal {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
 
         LibUtils._validateEventAndOrganizer(_eventId);
 
-        s.eventMerkleRoots[_eventId] = _merkleRoot;
+        s.eventVerificationCodes[_eventId] = _verificationCode;
 
-        emit LibEvents.MerkleRootSet(_eventId, _merkleRoot);
+        emit LibEvents.VerificationCodeSet(_eventId, _verificationCode);
     }
 
     /**
@@ -61,9 +63,23 @@ contract TicketManagementFacet is ReentrancyGuard {
 
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
+        // Generate a random salt using some current block informations and sender address
+        bytes32 uniqueSalt = keccak256(
+            abi.encodePacked(
+                block.timestamp,
+                msg.sender,
+                blockhash(block.number - 1) // hash of the previous block
+            )
+        );
+
         string memory ticketName = eventDetails.title;
         address newTicketNFT = address(
-            new Ticket_NFT(address(this), _ticketUri, ticketName, _ticketType)
+            new Ticket_NFT{salt: uniqueSalt}(
+                address(this),
+                _ticketUri,
+                ticketName,
+                _ticketType
+            )
         );
 
         eventDetails.ticketNFTAddr = newTicketNFT;
@@ -74,17 +90,25 @@ contract TicketManagementFacet is ReentrancyGuard {
     }
 
     /**
-     * @dev Creates a ticket for an existing event
+     * @dev Creates a ticket for an existing event using ERC20Permit for approval
      * @param _eventId The ID of the event
      * @param _category The category of the ticket (NONE for FREE, REGULAR or VIP for PAID events)
      * @param _ticketFee The price of the ticket (0 for FREE tickets)
      * @param _ticketUri The URI for the ticket metadata
+     * @param _verificationCode Optional code that will be displayed at the event for attendees to verify
+     * @param _v Signature v component
+     * @param _r Signature r component
+     * @param _s Signature s component
      */
-    function createTicket(
+    function createTicketWithPermit(
         uint256 _eventId,
         LibTypes.PaidTicketCategory _category,
         uint256 _ticketFee,
-        string memory _ticketUri
+        string memory _ticketUri,
+        bytes32 _verificationCode,
+        uint8 _v,
+        bytes32 _r,
+        bytes32 _s
     ) external nonReentrant returns (bool success_) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
 
@@ -97,6 +121,8 @@ contract TicketManagementFacet is ReentrancyGuard {
 
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
         LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
+
+        setEventVerificationCode(_eventId, _verificationCode);
 
         // Handle FREE tickets
         if (_category == LibTypes.PaidTicketCategory.NONE) {
@@ -120,7 +146,7 @@ contract TicketManagementFacet is ReentrancyGuard {
                 LibConstants.FREE_TICKET_PRICE,
                 "FREE"
             );
-            return success_;
+            return true;
         }
 
         // Handle PAID tickets
@@ -156,21 +182,44 @@ contract TicketManagementFacet is ReentrancyGuard {
                 revert LibErrors.InsufficientStakeAmount();
             }
 
-            // Transfer the additional stake needed stake to the contract
-            IERC20(eventDetails.paymentToken).safeTransferFrom(
-                msg.sender,
-                address(this),
-                additionalStakeNeeded
-            );
+            // deadline of 30 minutes from now to prevent stale signatures
+            uint256 deadline = block.timestamp + 30 minutes;
+
+            // Check deadline is valid (must be in the future)
+            if (deadline < block.timestamp) {
+                revert LibErrors.ExpiredDeadline();
+            }
+
+            // Use permit for approval
+            try
+                IERC20Permit(eventDetails.paymentToken).permit(
+                    msg.sender,
+                    address(this),
+                    additionalStakeNeeded,
+                    deadline,
+                    _v,
+                    _r,
+                    _s
+                )
+            {
+                // Transfer the additional stake needed to the contract
+                IERC20(eventDetails.paymentToken).safeTransferFrom(
+                    msg.sender,
+                    address(this),
+                    additionalStakeNeeded
+                );
+
+                emit IExtendedERC20.Transfer(
+                    msg.sender,
+                    address(this),
+                    additionalStakeNeeded
+                );
+            } catch {
+                revert LibErrors.PermitFailed();
+            }
 
             // Update total stake
             s.stakedAmounts[_eventId] += additionalStakeNeeded;
-
-            emit IExtendedERC20.Transfer(
-                msg.sender,
-                address(this),
-                additionalStakeNeeded
-            );
         }
 
         if (_category == LibTypes.PaidTicketCategory.REGULAR) {
@@ -201,7 +250,7 @@ contract TicketManagementFacet is ReentrancyGuard {
                 _ticketFee,
                 "REGULAR"
             );
-            return success_;
+            return true;
         } else if (_category == LibTypes.PaidTicketCategory.VIP) {
             if (tickets.hasVIPTicket) {
                 revert LibErrors.VIPTicketsAlreadyCreated();
@@ -233,18 +282,24 @@ contract TicketManagementFacet is ReentrancyGuard {
                 _ticketFee,
                 "VIP"
             );
-            return success_;
+            return true;
         }
     }
 
     /**
-     * @dev Purchase ticket using ERC20 tokens (stablecoin)
+     * @dev Purchase ticket using ERC20 tokens with permit
      * @param _eventId The ID of the event
      * @param _category The category of ticket to purchase
+     * @param _v Signature v component
+     * @param _r Signature r component
+     * @param _s Signature s component
      */
-    function purchaseTicket(
+    function purchaseTicketWithPermit(
         uint256 _eventId,
-        LibTypes.PaidTicketCategory _category
+        LibTypes.PaidTicketCategory _category,
+        uint8 _v,
+        bytes32 _r,
+        bytes32 _s
     ) external nonReentrant {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
 
@@ -266,7 +321,7 @@ contract TicketManagementFacet is ReentrancyGuard {
 
         // Check if event was confirmed as scam
         if (s.eventConfirmedScam[_eventId]) {
-            revert("Event confirmed as scam, tickets unavailable");
+            revert LibErrors.EventConfirmedAscam_TicketsUnavailable();
         }
 
         LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
@@ -282,32 +337,56 @@ contract TicketManagementFacet is ReentrancyGuard {
         } else {
             // Handle paid tickets
             if (_category == LibTypes.PaidTicketCategory.REGULAR) {
-                if (!tickets.hasRegularTicket) {
+                if (!tickets.hasRegularTicket)
                     revert LibErrors.RegularTicketsNotAvailable();
-                }
+
                 ticketNFTAddr = tickets.regularTicketNFT;
                 requiredFee = tickets.regularTicketFee;
             } else if (_category == LibTypes.PaidTicketCategory.VIP) {
-                if (!tickets.hasVIPTicket) {
+                if (!tickets.hasVIPTicket)
                     revert LibErrors.VIPTicketsNotAvailable();
-                }
+
                 ticketNFTAddr = tickets.vipTicketNFT;
                 requiredFee = tickets.vipTicketFee;
             } else {
                 revert LibErrors.InvalidTicketCategory();
             }
 
-            // Transfer ERC20 tokens from buyer to contract
-            if (requiredFee > 0) {
-                IERC20(eventDetails.paymentToken).safeTransferFrom(
+            // Set deadline of 30 minutes from now to prevent stale signatures
+            uint256 deadline = block.timestamp + 30 minutes;
+
+            // Check deadline is valid
+            if (deadline < block.timestamp) {
+                revert LibErrors.ExpiredDeadline();
+            }
+
+            // Use permit for approval
+            try
+                IERC20Permit(eventDetails.paymentToken).permit(
                     msg.sender,
                     address(this),
-                    requiredFee
-                );
+                    requiredFee,
+                    deadline,
+                    _v,
+                    _r,
+                    _s
+                )
+            {
+                // Transfer ERC20 tokens from buyer to escrow contract
+                if (requiredFee > 0) {
+                    IERC20(eventDetails.paymentToken).safeTransferFrom(
+                        msg.sender,
+                        address(this),
+                        requiredFee
+                    );
+                }
+            } catch {
+                revert LibErrors.PermitFailed();
             }
         }
 
-        require(ticketNFTAddr != address(0), "Ticket contract not set");
+        if (ticketNFTAddr == address(0))
+            revert LibErrors.TicketContractNotSet();
 
         // Mint NFT ticket
         ITicket_NFT ticketContract = ITicket_NFT(ticketNFTAddr);
@@ -320,7 +399,7 @@ contract TicketManagementFacet is ReentrancyGuard {
         // Update organizer revenue balance
         s.organiserRevBal[eventDetails.organiser][_eventId] += requiredFee;
 
-        // Add buyer to attendance list for Merkle tree
+        // Add buyer to attendance list
         s.eventAttendees[_eventId].push(msg.sender);
 
         s.totalPurchasedTicket += 1;
@@ -329,13 +408,15 @@ contract TicketManagementFacet is ReentrancyGuard {
     }
 
     /**
-     * @dev Verify attendance using Merkle proof
+     * @dev Verify attendance using attendee-generated ECDSA signature
      * @param _eventId The ID of the event
-     * @param _merkleProof Merkle proof verifying the caller's inclusion in the attendee list
+     * @param _verificationCode The verification code displayed at the event
+     * @param _signature Signature created by the attendee to verify their attendance
      */
     function verifyAttendance(
         uint256 _eventId,
-        bytes32[] calldata _merkleProof
+        bytes32 _verificationCode,
+        bytes calldata _signature
     ) external {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
 
@@ -355,49 +436,71 @@ contract TicketManagementFacet is ReentrancyGuard {
         }
 
         // Check if user has a ticket
-        if (!s.hasRegistered[msg.sender][_eventId]) {
+        if (s.hasRegistered[msg.sender][_eventId]) {
+            // Verify the provided verification code matches the one set for the event
+            bytes32 eventCode = s.eventVerificationCodes[_eventId];
+            if (eventCode == bytes32(0))
+                revert LibErrors.VerificationCodeNotSet();
+            if (eventCode != _verificationCode)
+                revert LibErrors.InvalidVerificationCode();
+
+            // Create the message hash including the verification code to prove presence
+            bytes32 messageHash = keccak256(
+                abi.encodePacked(
+                    "\x19Ethereum Signed Message:\n32",
+                    keccak256(
+                        abi.encodePacked(
+                            "I verify my attendance at event",
+                            _eventId,
+                            "with code",
+                            _verificationCode,
+                            "at timestamp",
+                            block.timestamp
+                        )
+                    )
+                )
+            );
+
+            // Recover the signer address from the signature
+            address recoveredSigner = ECDSA.recover(messageHash, _signature);
+
+            // Verify the signature is from the attendee themselves
+            if (recoveredSigner != msg.sender)
+                revert LibErrors.InvalidSignature();
+
+            // Mark attendee as verified
+            s.isVerified[msg.sender][_eventId] = true;
+            eventDetails.verifiedAttendeesCount += 1;
+
+            emit LibEvents.AttendeeVerified(
+                _eventId,
+                msg.sender,
+                block.timestamp
+            );
+        } else {
             revert LibErrors.NotRegisteredForEvent();
         }
-
-        // Get the Merkle root for this event
-        bytes32 merkleRoot = s.eventMerkleRoots[_eventId];
-        require(merkleRoot != bytes32(0), "Merkle root not set for this event");
-
-        // Create leaf node by hashing the address
-        bytes32 leaf = keccak256(abi.encodePacked(msg.sender));
-
-        // Verify the proof
-        require(
-            MerkleProof.verify(_merkleProof, merkleRoot, leaf),
-            "Invalid Merkle proof"
-        );
-
-        // Mark attendee as verified
-        s.isVerified[msg.sender][_eventId] = true;
-        eventDetails.verifiedAttendeesCount += 1;
-
-        emit LibEvents.AttendeeVerified(_eventId, msg.sender, block.timestamp);
     }
 
     /**
-     * @dev Verify if an address is whitelisted for an event using Merkle proof
+     * @dev Verify if an address has self-verified attendance for an event
      * @param _eventId The ID of the event
-     * @param _address The address to verify
-     * @param _merkleProof Merkle proof for the address
-     * @return True if address is whitelisted
+     * @param _address The address to check
+     * @return True if address has verified their attendance
      */
-    function isAddressWhitelisted(
+    function isAddressVerified(
         uint256 _eventId,
-        address _address,
-        bytes32[] calldata _merkleProof
+        address _address
     ) external view returns (bool) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
 
-        bytes32 merkleRoot = s.eventMerkleRoots[_eventId];
-        if (merkleRoot == bytes32(0)) return false;
+        // check if they are registered
+        if (!s.hasRegistered[_address][_eventId]) {
+            return false;
+        }
 
-        bytes32 leaf = keccak256(abi.encodePacked(_address));
-        return MerkleProof.verify(_merkleProof, merkleRoot, leaf);
+        // check if they've verified their attendance
+        return s.isVerified[_address][_eventId];
     }
 
     /**
