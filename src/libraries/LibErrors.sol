@@ -17,7 +17,12 @@ library LibErrors {
     error AddressZeroDetected();
     error RevenueAlreadyReleased();
     error NoRevenueToRelease();
+    error NoRevenueToWithdraw();
+    error EventConfirmedAsScam();
+    error EventHasBeenFlaggedByAttendees();
     error TokenNotSupported();
+    error ExpiredDeadline();
+    error PermitFailed();
 
     // Ticket management errors
     error NotEventOrganizer();
@@ -36,6 +41,19 @@ library LibErrors {
     error VIPTicketsNotAvailable();
     error InvalidTicketCategory();
     error RegistrationHasClosed();
+    error EventConfirmedAscam_TicketsUnavailable();
+    error LowAttendanceRateWaitingPeriod();
+    error EventNotConfirmedAsScam();
+    error NotTicketBuyer();
+    error RefundAlreadyClaimed();
+    error InsufficientContractBalance();
+    error TicketContractNotSet();
+
+    // Attendance verification errors
+    error VerificationCodeNotSet();
+    error InvalidVerificationCode();
+    error InvalidSignature();
+    error SignatureExpired();
 
     // Staking errors
     error InsufficientInitialStake();
@@ -50,4 +68,6 @@ library LibErrors {
     // Flagging errors
     error AlreadyFlagged();
     error FlaggingPeriodEnded();
+    error ExplanationTooLong();
+    error ReasonTooLong();
 }

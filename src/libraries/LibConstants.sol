@@ -13,6 +13,7 @@ library LibConstants {
     uint256 constant FREE_EVENT_SERVICE_FEE_BASE = 25e5; // $2.5 in smallest units (assuming 6 decimals)
     uint256 constant FREE_EVENT_ATTENDEE_THRESHOLD = 50;
     uint256 constant PAID_EVENT_SERVICE_FEE_PERCENT = 5; // 5% of event total revenue
+    uint256 constant MIN_PLATFORM_BALANCE = 1e6;
     // Flagging threshold for calculating fraud potential
     uint256 constant FLAGGING_THRESHOLD = 70; // This is used in a calculation where we check if flags exceed 70% of non-verified attendees
     uint256 constant SCAM_CONFIRM_PERIOD = 30 days;

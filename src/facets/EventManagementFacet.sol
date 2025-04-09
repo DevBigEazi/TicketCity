@@ -12,6 +12,7 @@ import "../interfaces/IExtendedERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
 
 /**
  * @title EventManagementFacet
@@ -23,18 +24,22 @@ contract EventManagementFacet is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     /**
-     * @dev Creates a new event with staking requirement
+     * @dev Creates a new event with staking requirement using ERC20Permit for approval
      * @param _title Event title
-     * @param _desc Event title
+     * @param _desc Event description
      * @param _imageUri URI of the event image
      * @param _location Event location
      * @param _startDate Event start timestamp
      * @param _endDate Event end timestamp
      * @param _expectedAttendees Expected number of attendees
      * @param _ticketType Type of tickets for the event (FREE or PAID)
+     * @param _paymentToken The ERC20 token used for payment (must support permit)
+     * @param _v Signature v component
+     * @param _r Signature r component
+     * @param _s Signature s component
      * @return The ID of the newly created event
      */
-    function createEvent(
+    function createEventWithPermit(
         string memory _title,
         string memory _desc,
         string memory _imageUri,
@@ -43,14 +48,25 @@ contract EventManagementFacet is ReentrancyGuard {
         uint256 _endDate,
         uint256 _expectedAttendees,
         LibTypes.TicketType _ticketType,
-        IERC20 _paymentToken
+        IERC20Permit _paymentToken,
+        uint8 _v,
+        bytes32 _r,
+        bytes32 _s
     ) external nonReentrant returns (uint256) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
 
-        // Input validation
+        // Input validation (same as original)
         if (msg.sender == address(0)) revert LibErrors.AddressZeroDetected();
         if (bytes(_title).length == 0 || bytes(_desc).length == 0) {
             revert LibErrors.EmptyTitleOrDescription();
+        }
+        // Check title, desc and location length
+        if (
+            bytes(_title).length > 32 ||
+            bytes(_desc).length > 32 ||
+            bytes(_location).length > 32
+        ) {
+            revert LibErrors.ReasonTooLong();
         }
         if (_startDate >= _endDate || _startDate < block.timestamp) {
             revert LibErrors.InvalidDates();
@@ -78,29 +94,50 @@ contract EventManagementFacet is ReentrancyGuard {
         uint256 initialStake = 0;
         if (_ticketType == LibTypes.TicketType.PAID) {
             initialStake = LibConstants.INITIAL_STAKE_AMOUNT;
+
             // Check if the payment token is valid
-            if (_paymentToken.balanceOf(msg.sender) < initialStake) {
-                revert LibErrors.InsufficientInitialStake();
-            }
             if (
-                _paymentToken.allowance(msg.sender, address(this)) <
+                IERC20(address(_paymentToken)).balanceOf(msg.sender) <
                 initialStake
             ) {
-                revert LibErrors.InsufficientAllowance();
+                revert LibErrors.InsufficientInitialStake();
             }
 
-            // Transfer the initial stake to the contract
-            _paymentToken.safeTransferFrom(
-                msg.sender,
-                address(this),
-                initialStake
-            );
+            // deadline of 30 minutes from now to prevent stale signatures
+            uint256 deadline = block.timestamp + 30 minutes;
 
-            emit IExtendedERC20.Transfer(
-                msg.sender,
-                address(this),
-                initialStake
-            );
+            // Check deadline is valid (must be in the future)
+            if (deadline < block.timestamp) {
+                revert LibErrors.ExpiredDeadline();
+            }
+
+            // handle potential failures (front-running protection)
+            try
+                _paymentToken.permit(
+                    msg.sender,
+                    address(this),
+                    initialStake,
+                    deadline,
+                    _v,
+                    _r,
+                    _s
+                )
+            {
+                // Convert to IERC20 to use SafeERC20 functions
+                IERC20 token = IERC20(address(_paymentToken));
+
+                // Transfer the initial stake to the contract
+                token.safeTransferFrom(msg.sender, address(this), initialStake);
+
+                emit IExtendedERC20.Transfer(
+                    msg.sender,
+                    address(this),
+                    initialStake
+                );
+            } catch {
+                // If permit fails, fall back to requiring approval via regular approve
+                revert LibErrors.PermitFailed();
+            }
         }
 
         uint256 eventId = s.totalEventOrganised + 1;

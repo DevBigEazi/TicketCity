@@ -14,6 +14,14 @@ import "../interfaces/ITicket_NFT.sol";
  */
 library LibUtils {
     /**
+     * @dev function to restrict withdrawal function access to the contract owner
+     */
+    function onlyOwner() internal view {
+        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
+        if (msg.sender != s.owner) revert LibErrors.OnlyOwnerAllowed();
+    }
+
+    /**
      * @dev Validates that an event exists and the caller is the organizer
      * @param _eventId The ID of the event to validate
      */
@@ -35,7 +43,10 @@ library LibUtils {
      * @param _eventId The ID of the event
      * @return bool True if user has a VIP ticket
      */
-    function _hasVIPTicket(address _user, uint256 _eventId) internal view returns (bool) {
+    function _hasVIPTicket(
+        address _user,
+        uint256 _eventId
+    ) internal view returns (bool) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
 
@@ -43,7 +54,9 @@ library LibUtils {
             return false;
         }
 
-        try ITicket_NFT(tickets.vipTicketNFT).balanceOf(_user) returns (uint256 balance) {
+        try ITicket_NFT(tickets.vipTicketNFT).balanceOf(_user) returns (
+            uint256 balance
+        ) {
             return balance > 0;
         } catch {
             return false;
@@ -56,15 +69,22 @@ library LibUtils {
      * @param _eventId The ID of the event
      * @return bool True if user has a regular ticket
      */
-    function _hasRegularTicket(address _user, uint256 _eventId) internal view returns (bool) {
+    function _hasRegularTicket(
+        address _user,
+        uint256 _eventId
+    ) internal view returns (bool) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
 
-        if (!tickets.hasRegularTicket || tickets.regularTicketNFT == address(0)) {
+        if (
+            !tickets.hasRegularTicket || tickets.regularTicketNFT == address(0)
+        ) {
             return false;
         }
 
-        try ITicket_NFT(tickets.regularTicketNFT).balanceOf(_user) returns (uint256 balance) {
+        try ITicket_NFT(tickets.regularTicketNFT).balanceOf(_user) returns (
+            uint256 balance
+        ) {
             return balance > 0;
         } catch {
             return false;
@@ -77,7 +97,10 @@ library LibUtils {
      * @param _eventId The ID of the event
      * @return ticketType String representation of ticket type ("FREE", "REGULAR", "VIP", or "NONE")
      */
-    function _getUserTicketType(address _user, uint256 _eventId) internal view returns (string memory) {
+    function _getUserTicketType(
+        address _user,
+        uint256 _eventId
+    ) internal view returns (string memory) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
 
         if (!s.hasRegistered[_user][_eventId]) {
@@ -137,7 +160,7 @@ library LibUtils {
         if (s.organizerSuccessfulEvents[_organiser] == 0) {
             baseStakePercentage += LibConstants.NEW_ORGANIZER_PENALTY;
         }
-        
+
         // Add additional stake requirement for organizers with scam history
         if (s.organizerScammedEvents[_organiser] > 0) {
             baseStakePercentage += (s.organizerScammedEvents[_organiser] * 10); // +10% per scam event
@@ -148,7 +171,9 @@ library LibUtils {
         uint256 reputationDiscount = 0;
 
         if (successEvents > 0) {
-            reputationDiscount = successEvents * LibConstants.REPUTATION_DISCOUNT_FACTOR;
+            reputationDiscount =
+                successEvents *
+                LibConstants.REPUTATION_DISCOUNT_FACTOR;
             if (reputationDiscount > LibConstants.MAX_REPUTATION_DISCOUNT) {
                 reputationDiscount = LibConstants.MAX_REPUTATION_DISCOUNT;
             }

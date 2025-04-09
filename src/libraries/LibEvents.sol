@@ -47,9 +47,17 @@ library LibEvents {
     );
 
     /**
-     * @dev Emitted when a Merkle root is set for an event
+     * @dev Emitted when a verification code is set for an event
      */
-    event MerkleRootSet(uint256 indexed eventId, bytes32 merkleRoot);
+    event VerificationCodeSet(
+        uint256 indexed eventId,
+        bytes32 verificationCode
+    );
+
+    /**
+     * @dev Emitted when the owner withdraws platform revenue
+     */
+    event PlatformRevenueWithdrawn(address indexed _to, uint256 _amount);
 
     /**
      * @dev Emitted when event revenue is released to organizer
