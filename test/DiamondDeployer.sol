@@ -5,12 +5,12 @@ import "../src/interfaces/IDiamondCut.sol";
 import "../src/facets/DiamondCutFacet.sol";
 import "../src/facets/DiamondLoupeFacet.sol";
 import "../src/facets/OwnershipFacet.sol";
-import "../src/Diamond.sol";
+import "../src/TicketCityDiamond.sol";
 import "./helpers/DiamondUtils.sol";
 
 contract DiamondDeployer is DiamondUtils, IDiamondCut {
     //contract types of facets to be deployed
-    Diamond diamond;
+    TicketCityDiamond diamond;
     DiamondCutFacet dCutFacet;
     DiamondLoupeFacet dLoupe;
     OwnershipFacet ownerF;
@@ -18,7 +18,7 @@ contract DiamondDeployer is DiamondUtils, IDiamondCut {
     function testDeployDiamond() public {
         //deploy facets
         dCutFacet = new DiamondCutFacet();
-        diamond = new Diamond(address(this), address(dCutFacet));
+        diamond = new TicketCityDiamond(address(this), address(dCutFacet));
         dLoupe = new DiamondLoupeFacet();
         ownerF = new OwnershipFacet();
 
@@ -50,5 +50,9 @@ contract DiamondDeployer is DiamondUtils, IDiamondCut {
         DiamondLoupeFacet(address(diamond)).facetAddresses();
     }
 
-    function diamondCut(FacetCut[] calldata _diamondCut, address _init, bytes calldata _calldata) external override {}
+    function diamondCut(
+        FacetCut[] calldata _diamondCut,
+        address _init,
+        bytes calldata _calldata
+    ) external override {}
 }

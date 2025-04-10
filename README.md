@@ -21,6 +21,7 @@ The platform has been implemented using the Diamond Proxy pattern for enhanced m
 - **Stablecoin Support**: Multiple ERC20 stablecoins can be supported for payments.
 - **Revenue Management**: Automated release of revenue to organizers after successful events.
 - **ERC20Permit Support**: Enhanced UX with gasless approvals using permit signatures.
+- **Optimized Data Structures**: Event parameters are now grouped into structured types to enhance gas efficiency and code readability.
 
 ### Trust & Security Mechanisms
 
@@ -30,6 +31,7 @@ The platform has been implemented using the Diamond Proxy pattern for enhanced m
 - **Dispute Resolution**: Organizers can request manual review with explanations if their event is heavily flagged. The platform owner can manually confirm events as scams after investigation.
 - **Reputation Tracking**: The system tracks both successful events and scam events per organizer, which affects future staking requirements.
 - **Organizer Blacklisting**: The platform maintains a blacklist of fraudulent organizers who are prevented from creating new events.
+- **Enhanced Data Validation**: Improved input validation with detailed error messages for event details and ticket parameters.
 
 ### Advanced Anti-Fraud Measures
 
@@ -83,28 +85,42 @@ Events in Ticket City are created by organizers who define parameters such as:
 
 For PAID events, organizers must provide an initial minimal stake of 10 USDC (10e6 in smallest units), with additional stake required when creating tickets. This stake amount varies based on the organizer's reputation score and past performance.
 
+The platform has improved its event creation function by using structured parameters to reduce stack variables and enhance readability:
+
 ```solidity
 function createEventWithPermit(
-    string memory _title,
-    string memory _desc,
-    string memory _imageUri,
-    string memory _location,
-    uint256 _startDate,
-    uint256 _endDate,
-    uint256 _expectedAttendees,
-    LibTypes.TicketType _ticketType,
-    IERC20Permit _paymentToken,
-    uint8 _v,
-    bytes32 _r,
-    bytes32 _s
+    EventCreateParams calldata _params,
+    SignatureParams calldata _sig
 ) external nonReentrant returns (uint256)
+```
+
+Where `EventCreateParams` and `SignatureParams` are structured types that group related parameters:
+
+```solidity
+struct EventCreateParams {
+    string title;
+    string desc;
+    string imageUri;
+    string location;
+    uint256 startDate;
+    uint256 endDate;
+    uint256 expectedAttendees;
+    LibTypes.TicketType ticketType;
+    IERC20Permit paymentToken;
+}
+
+struct SignatureParams {
+    uint8 v;
+    bytes32 r;
+    bytes32 s;
+}
 ```
 
 The platform also provides several methods to fetch events:
 
-- Get events without tickets for a user
-- Get events with tickets for a user
-- Get all valid events with available tickets
+- `getEventsWithoutTicketsByUser`: Enhanced to accurately filter events without tickets, considering both FREE and PAID event types and their different ticket configurations.
+- `getEventsWithTicketByUser`: Optimized to return only events with properly configured tickets.
+- `getAllValidEvents`: Identifies valid events with available tickets that haven't ended.
 
 ### Ticketing System
 
@@ -114,38 +130,58 @@ Once an event is created, organizers can define different ticket types:
 - **REGULAR tickets**: Standard paid admission
 - **VIP tickets**: Premium paid admission at a higher price point
 
-Each ticket is represented as a soulbound (non-transferable) NFT, providing verifiable ownership while preventing ticket scalping and unauthorized transfers. The `Ticket_NFT` contract enforces this non-transferability by overriding the `_update` function to revert when attempted transfers occur between non-zero addresses:
+Each ticket is represented as a soulbound (non-transferable) NFT, providing verifiable ownership while preventing ticket scalping and unauthorized transfers. The `TicketNFT` contract enforces this non-transferability by overriding the `_update` function to revert when attempted transfers occur between non-zero addresses.
 
-```solidity
-function _update(address to, uint256 tokenId, address auth) internal override returns (address) {
-    address from = _ownerOf(tokenId);
-
-    // Allow minting (from = address(0)) and burning (to = address(0))
-    // But prevent transfers between non-zero addresses
-    if (from != address(0) && to != address(0)) {
-        revert("Non-transferable: Ticket cannot be transferred");
-    }
-
-    return super._update(to, tokenId, auth);
-}
-```
-
-This approach ensures tickets remain with their original purchasers, effectively eliminating secondary markets and unauthorized reselling.
+The ticket creation function has been improved to use structured parameters:
 
 ```solidity
 function createTicketWithPermit(
-    uint256 _eventId,
-    LibTypes.PaidTicketCategory _category,
-    uint256 _ticketFee,
-    string memory _ticketUri,
-    bytes32 _verificationCode,
-    uint8 _v,
-    bytes32 _r,
-    bytes32 _s
+    TicketCreateParams calldata _params,
+    SignatureParams calldata _sig
 ) external nonReentrant returns (bool success_)
 ```
 
-The platform stores ticket information in dedicated structures and provides methods to track the ticket types owned by users.
+Where `TicketCreateParams` is a structured type for ticket parameters:
+
+```solidity
+struct TicketCreateParams {
+    uint256 eventId;
+    LibTypes.PaidTicketCategory category;
+    uint256 ticketFee;
+    string ticketUri;
+    bytes32 verificationCode;
+}
+```
+
+Similarly, ticket purchasing has been improved with structured parameters:
+
+```solidity
+function purchaseTicketWithPermit(
+    TicketPurchaseParams calldata _params,
+    SignatureParams calldata _sig
+) external nonReentrant
+```
+
+Where `TicketPurchaseParams` is:
+
+```solidity
+struct TicketPurchaseParams {
+    uint256 eventId;
+    LibTypes.PaidTicketCategory category;
+}
+```
+
+This approach offers:
+- Reduced stack usage for better gas efficiency
+- Improved readability and maintainability
+- Better grouping of related parameters
+- Enhanced error handling with specific revert messages
+
+The platform stores ticket information in dedicated structures and provides optimized methods to track the ticket types owned by users:
+
+- `getUserTicketType`: Determines the specific ticket type a user has for an event
+- `hasVIPTicket`: Quickly checks if a user has a VIP ticket
+- `getMyTickets`: Returns comprehensive information about all tickets a user has purchased
 
 ### Stablecoin Management System
 
@@ -175,7 +211,7 @@ The platform's staking mechanism includes a reputation system:
 - Successful events earn organizers a 5% discount on future stakes, up to a maximum of 15%
 - The stake serves as economic collateral for potential refunds if an event is determined to be fraudulent
 
-Attendance verification uses a cryptographic signature system that provides secure proof of attendance:
+Attendance verification has been enhanced with a more secure implementation using cryptographic signatures:
 
 1. Organizers set a verification code for attendees using `setEventVerificationCode()`
 2. Attendees verify their attendance by signing a message containing the verification code using `verifyAttendance()`
@@ -186,7 +222,7 @@ function verifyAttendance(uint256 _eventId, bytes32 _verificationCode, bytes cal
 function isAddressVerified(uint256 _eventId, address _address) external view returns (bool)
 ```
 
-This verification system increases the integrity of attendance tracking, which is crucial for determining event success rates and processing revenue release.
+The verification system now uses ECDSA signature recovery to validate that the attendee personally signed the verification message, enhancing security and preventing unauthorized verifications.
 
 ### Flagging & Dispute Resolution
 
@@ -281,10 +317,10 @@ The platform behavior is governed by several constants defined in LibConstants:
 ```mermaid
 graph TD
    subgraph "Event Creation Flow"
-   A[Organizer] -->|Creates Event with<br>ERC20 stablecoin & Permit| B[Ticket_City Contract]
+   A[Organizer] -->|Creates Event with<br>Structured Parameters & Permit| B[Ticket_City Contract]
    B -->|Collects Initial Stake| C[Stake Management]
    B -->|Creates Event Record| D[Event Storage]
-   A -->|Creates Tickets with Permit| B
+   A -->|Creates Tickets with<br>Structured Parameters & Permit| B
    B -->|Deploys| E[Soulbound NFT Contract]
    B -->|Sets| F[Ticket Types]
    F -->|FREE| G[Single Ticket Type]
@@ -297,7 +333,7 @@ end
 
 ```mermaid
 graph TD
-    A[Attendee] -->|Uses Permit for Approval| B[Ticket_City Contract]
+    A[Attendee] -->|Uses Structured Parameters<br>& Permit for Approval| B[Ticket_City Contract]
     B -->|Validates Signature| C[Signature Validation]
     C -->|Success| D[Mint Soulbound NFT Ticket]
     D -->|Updates| E[Event Records]
@@ -310,7 +346,7 @@ graph TD
 graph TD
     A[Organizer] -->|Sets Verification Code| B[Ticket_City Contract]
     C[Attendee] -->|Signs Message with Code| B
-    B -->|Verifies Signature| D[Validation Logic]
+    B -->|Verifies ECDSA Signature| D[Validation Logic]
     D -->|Valid| E[Mark Attendance Verified]
     D -->|Invalid| F[Reject Verification]
     E -->|Updates| G[Attendance Metrics]
@@ -364,22 +400,22 @@ The platform integrates ERC20 Permit functionality for enhanced user experience:
 - **Reduced Transaction Steps**: Creating events, tickets, and purchasing tickets now require only one transaction
 - **Streamlined Experience**: Provides a more seamless user experience, especially for new blockchain users
 
-This integration affects multiple facets:
+This integration affects multiple facets with parameter structuring:
 
 ```solidity
 // EventManagementFacet
-function createEventWithPermit(..., uint8 _v, bytes32 _r, bytes32 _s)
+function createEventWithPermit(EventCreateParams calldata _params, SignatureParams calldata _sig)
 
 // TicketManagementFacet
-function createTicketWithPermit(..., uint8 _v, bytes32 _r, bytes32 _s)
-function purchaseTicketWithPermit(..., uint8 _v, bytes32 _r, bytes32 _s)
+function createTicketWithPermit(TicketCreateParams calldata _params, SignatureParams calldata _sig)
+function purchaseTicketWithPermit(TicketPurchaseParams calldata _params, SignatureParams calldata _sig)
 ```
 
 ## User Guides
 
 ### For Event Organizers
 
-1. **Create an event** by providing details and signing a permit for the initial stake
+1. **Create an event** by providing structured parameters and signing a permit for the initial stake
 2. **Create ticket types** for the event (FREE, REGULAR, VIP) with verification code
 3. **Set the verification code** for attendance verification
 4. **Monitor attendance** as the event progresses
@@ -388,7 +424,7 @@ function purchaseTicketWithPermit(..., uint8 _v, bytes32 _r, bytes32 _s)
 ### For Attendees
 
 1. **Purchase tickets** for desired events by signing a permit message
-2. **Attend the event** and verify attendance with the verification code
+2. **Attend the event** and verify attendance with the verification code and cryptographic signature
 3. **Flag events** if they were fraudulent or didn't deliver as promised
 4. **Claim refunds** if the event is confirmed as a scam
 
@@ -405,13 +441,28 @@ function purchaseTicketWithPermit(..., uint8 _v, bytes32 _r, bytes32 _s)
 The platform implements several security measures:
 
 - `ReentrancyGuard` to prevent reentrancy attacks
-- Validation checks for all inputs
+- Validation checks for all inputs with enhanced error handling
 - Economic incentives aligned with honest behavior
 - Timelocks and waiting periods before sensitive actions
 - Error handling with custom error types
-- Cryptographic signatures for secure attendance verification
+- Enhanced cryptographic signatures for secure attendance verification using ECDSA
+- Structured parameter handling to prevent stack too deep errors
 - SafeERC20 for secure token transfers
 - Permit signatures with deadlines to prevent replay attacks
+
+## Code Improvements
+
+The latest update includes several code improvements:
+
+1. **Structured Parameter Types**: Functions now use structured types to group related parameters, reducing stack variables and improving code readability.
+
+2. **Enhanced Query Functions**: Event and ticket query functions have been optimized to provide more accurate filtering for user experiences.
+
+3. **Improved Security**: Attendance verification now uses ECDSA signature recovery for enhanced security.
+
+4. **Better Error Handling**: Specific error messages for each validation check using custom error types.
+
+5. **Gas Optimization**: Code restructuring to optimize gas usage in core functions.
 
 ## Future Extensions
 
@@ -430,7 +481,7 @@ Ticket City leverages blockchain technology and the Diamond Proxy pattern to cre
 
 The platform's implementation of soulbound NFT tickets forms a critical anti-scalping measure, as these non-transferable tokens ensure that tickets cannot be resold on secondary markets, maintaining fair access and pricing for all attendees. This represents a significant improvement over both traditional ticketing systems and earlier blockchain ticketing platforms that used transferable tokens.
 
-With the addition of ERC20 Permit functionality and a simplified verification system, Ticket City now provides an even more user-friendly experience while maintaining strong security guarantees. The permit-based approach reduces transaction steps and gas costs, making the platform more accessible to mainstream users.
+With the addition of ERC20 Permit functionality, a simplified verification system, and structured parameter handling, Ticket City now provides an even more user-friendly and gas-efficient experience while maintaining strong security guarantees. The permit-based approach reduces transaction steps and gas costs, making the platform more accessible to mainstream users.
 
 The reputation system enhances trust by incentivizing organizers to build a positive track record through successful events, with tangible benefits in reduced stake requirements. New organizers face higher stake requirements until they prove their reliability, creating a balanced ecosystem that protects attendees while allowing legitimate organizers to flourish.
 

@@ -6,7 +6,7 @@ import "./LibDiamond.sol";
 import "./LibErrors.sol";
 import "./LibTypes.sol";
 import "./LibConstants.sol";
-import "../interfaces/ITicket_NFT.sol";
+import "../interfaces/ITicketNFT.sol";
 
 /**
  * @title LibUtils
@@ -54,7 +54,7 @@ library LibUtils {
             return false;
         }
 
-        try ITicket_NFT(tickets.vipTicketNFT).balanceOf(_user) returns (
+        try ITicketNFT(tickets.vipTicketNFT).balanceOf(_user) returns (
             uint256 balance
         ) {
             return balance > 0;
@@ -82,7 +82,7 @@ library LibUtils {
             return false;
         }
 
-        try ITicket_NFT(tickets.regularTicketNFT).balanceOf(_user) returns (
+        try ITicketNFT(tickets.regularTicketNFT).balanceOf(_user) returns (
             uint256 balance
         ) {
             return balance > 0;
