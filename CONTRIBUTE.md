@@ -46,7 +46,7 @@ pre-commit install
 ### Branching Strategy
 
 - `main` - Production-ready code
-- `Staging` - Latest development changes
+- `staging` - Latest development changes
 - Feature branches - Named as `feature/[feature-name]`
 - Bug fix branches - Named as `fix/[bug-name]`
 
