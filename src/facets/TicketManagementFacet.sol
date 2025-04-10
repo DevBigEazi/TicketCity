@@ -8,8 +8,8 @@ import "../libraries/LibDiamond.sol";
 import "../libraries/LibTypes.sol";
 import "../libraries/LibErrors.sol";
 import "../libraries/LibUtils.sol";
-import "../interfaces/ITicket_NFT.sol";
-import "../../src/Ticket_NFT.sol";
+import "../interfaces/ITicketNFT.sol";
+import "../../src/TicketNFT.sol";
 import "../interfaces/IExtendedERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
@@ -26,6 +26,26 @@ contract TicketManagementFacet is ReentrancyGuard {
     using LibErrors for *;
     using SafeERC20 for IERC20;
     using ECDSA for bytes32;
+
+    // group parameters to reduce stack variables
+    struct TicketCreateParams {
+        uint256 eventId;
+        LibTypes.PaidTicketCategory category;
+        uint256 ticketFee;
+        string ticketUri;
+        bytes32 verificationCode;
+    }
+
+    struct SignatureParams {
+        uint8 v;
+        bytes32 r;
+        bytes32 s;
+    }
+
+    struct TicketPurchaseParams {
+        uint256 eventId;
+        LibTypes.PaidTicketCategory category;
+    }
 
     /**
      * @dev Set a verification code for an event (optional enhancement)
@@ -74,7 +94,7 @@ contract TicketManagementFacet is ReentrancyGuard {
 
         string memory ticketName = eventDetails.title;
         address newTicketNFT = address(
-            new Ticket_NFT{salt: uniqueSalt}(
+            new TicketNFT{salt: uniqueSalt}(
                 address(this),
                 _ticketUri,
                 ticketName,
@@ -91,220 +111,263 @@ contract TicketManagementFacet is ReentrancyGuard {
 
     /**
      * @dev Creates a ticket for an existing event using ERC20Permit for approval
-     * @param _eventId The ID of the event
-     * @param _category The category of the ticket (NONE for FREE, REGULAR or VIP for PAID events)
-     * @param _ticketFee The price of the ticket (0 for FREE tickets)
-     * @param _ticketUri The URI for the ticket metadata
-     * @param _verificationCode Optional code that will be displayed at the event for attendees to verify
-     * @param _v Signature v component
-     * @param _r Signature r component
-     * @param _s Signature s component
+     * @param _params Struct containing ticket creation parameters
+     * @param _sig Struct containing signature parameters
      */
     function createTicketWithPermit(
-        uint256 _eventId,
-        LibTypes.PaidTicketCategory _category,
-        uint256 _ticketFee,
-        string memory _ticketUri,
-        bytes32 _verificationCode,
-        uint8 _v,
-        bytes32 _r,
-        bytes32 _s
+        TicketCreateParams calldata _params,
+        SignatureParams calldata _sig
     ) external nonReentrant returns (bool success_) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
 
-        LibUtils._validateEventAndOrganizer(_eventId);
+        LibUtils._validateEventAndOrganizer(_params.eventId);
 
         // Check if organizer is blacklisted
         if (s.blacklistedOrganizers[msg.sender]) {
             revert LibErrors.OrganizerIsBlacklisted();
         }
 
-        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
-        LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
+        LibTypes.EventDetails storage eventDetails = s.events[_params.eventId];
+        LibTypes.TicketTypes storage tickets = s.eventTickets[_params.eventId];
 
-        setEventVerificationCode(_eventId, _verificationCode);
+        setEventVerificationCode(_params.eventId, _params.verificationCode);
 
         // Handle FREE tickets
-        if (_category == LibTypes.PaidTicketCategory.NONE) {
-            if (eventDetails.ticketType != LibTypes.TicketType.FREE) {
-                revert LibErrors.FreeTicketForFreeEventOnly();
-            }
-
-            address newTicketNFT = _createTicket(
-                _eventId,
-                LibConstants.FREE_TICKET_PRICE,
-                _ticketUri,
-                "FREE"
-            );
-
-            s.totalTicketCreated++;
-
-            emit LibEvents.TicketCreated(
-                _eventId,
-                msg.sender,
-                newTicketNFT,
-                LibConstants.FREE_TICKET_PRICE,
-                "FREE"
-            );
-            return true;
+        if (_params.category == LibTypes.PaidTicketCategory.NONE) {
+            return _createFreeTicket(_params);
         }
 
         // Handle PAID tickets
         if (eventDetails.ticketType != LibTypes.TicketType.PAID) {
             revert LibErrors.YouCanNotCreateThisTypeOfTicketForThisEvent();
         }
-        if (_ticketFee == 0) revert LibErrors.InvalidTicketFee();
+        if (_params.ticketFee == 0) revert LibErrors.InvalidTicketFee();
 
         // If this is the first ticket being created, calculate and collect proper stake
         bool firstTicket = !tickets.hasRegularTicket && !tickets.hasVIPTicket;
 
         if (firstTicket) {
-            // Calculate required stake based on this ticket's price
-            uint256 requiredStake = LibUtils._calculateRequiredStake(
+            _collectAdditionalStake(_params, _sig);
+        }
+
+        if (_params.category == LibTypes.PaidTicketCategory.REGULAR) {
+            return _createRegularTicket(_params, tickets);
+        } else if (_params.category == LibTypes.PaidTicketCategory.VIP) {
+            return _createVipTicket(_params, tickets);
+        }
+
+        return false;
+    }
+
+    /**
+     * @dev Creates a free ticket for an event
+     * @param _params Ticket creation parameters
+     * @return success_ True if ticket creation was successful
+     */
+    function _createFreeTicket(
+        TicketCreateParams calldata _params
+    ) internal returns (bool success_) {
+        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
+        LibTypes.EventDetails storage eventDetails = s.events[_params.eventId];
+
+        if (eventDetails.ticketType != LibTypes.TicketType.FREE) {
+            revert LibErrors.FreeTicketForFreeEventOnly();
+        }
+
+        address newTicketNFT = _createTicket(
+            _params.eventId,
+            LibConstants.FREE_TICKET_PRICE,
+            _params.ticketUri,
+            "FREE"
+        );
+
+        s.totalTicketCreated++;
+
+        emit LibEvents.TicketCreated(
+            _params.eventId,
+            msg.sender,
+            newTicketNFT,
+            LibConstants.FREE_TICKET_PRICE,
+            "FREE"
+        );
+        return true;
+    }
+
+    /**
+     * @dev Creates a regular ticket for a paid event
+     * @param _params Ticket creation parameters
+     * @param tickets Event ticket types storage reference
+     * @return success_ True if ticket creation was successful
+     */
+    function _createRegularTicket(
+        TicketCreateParams calldata _params,
+        LibTypes.TicketTypes storage tickets
+    ) internal returns (bool success_) {
+        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
+
+        if (tickets.hasRegularTicket) {
+            revert LibErrors.RegularTicketsAlreadyCreated();
+        }
+        if (tickets.hasVIPTicket && _params.ticketFee >= tickets.vipTicketFee) {
+            revert LibErrors.RegularTicketMustCostLessThanVipTicket();
+        }
+
+        address newTicketNFT = _createTicket(
+            _params.eventId,
+            _params.ticketFee,
+            _params.ticketUri,
+            "REGULAR"
+        );
+
+        tickets.hasRegularTicket = true;
+        tickets.regularTicketFee = _params.ticketFee;
+        tickets.regularTicketNFT = newTicketNFT;
+
+        s.totalTicketCreated++;
+
+        emit LibEvents.TicketCreated(
+            _params.eventId,
+            msg.sender,
+            newTicketNFT,
+            _params.ticketFee,
+            "REGULAR"
+        );
+        return true;
+    }
+
+    /**
+     * @dev Creates a VIP ticket for a paid event
+     * @param _params Ticket creation parameters
+     * @param tickets Event ticket types storage reference
+     * @return success_ True if ticket creation was successful
+     */
+    function _createVipTicket(
+        TicketCreateParams calldata _params,
+        LibTypes.TicketTypes storage tickets
+    ) internal returns (bool success_) {
+        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
+
+        if (tickets.hasVIPTicket) {
+            revert LibErrors.VIPTicketsAlreadyCreated();
+        }
+        if (
+            tickets.hasRegularTicket &&
+            _params.ticketFee <= tickets.regularTicketFee
+        ) {
+            revert LibErrors.VipFeeTooLow();
+        }
+
+        address newTicketNFT = _createTicket(
+            _params.eventId,
+            _params.ticketFee,
+            _params.ticketUri,
+            "VIP"
+        );
+
+        tickets.hasVIPTicket = true;
+        tickets.vipTicketFee = _params.ticketFee;
+        tickets.vipTicketNFT = newTicketNFT;
+
+        s.totalTicketCreated++;
+
+        emit LibEvents.TicketCreated(
+            _params.eventId,
+            msg.sender,
+            newTicketNFT,
+            _params.ticketFee,
+            "VIP"
+        );
+        return true;
+    }
+
+    /**
+     * @dev Collects additional stake for first ticket creation
+     * @param _params Ticket creation parameters
+     * @param _sig Signature parameters
+     */
+    function _collectAdditionalStake(
+        TicketCreateParams calldata _params,
+        SignatureParams calldata _sig
+    ) internal {
+        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
+        LibTypes.EventDetails storage eventDetails = s.events[_params.eventId];
+
+        // Calculate required stake based on ticket price
+        uint256 requiredStake = LibUtils._calculateRequiredStake(
+            msg.sender,
+            eventDetails.expectedAttendees,
+            LibTypes.TicketType.PAID,
+            _params.ticketFee
+        );
+
+        // Subtract any stake already provided
+        uint256 existingStake = s.stakedAmounts[_params.eventId];
+        uint256 additionalStakeNeeded = 0;
+
+        if (requiredStake > existingStake) {
+            additionalStakeNeeded = requiredStake - existingStake;
+        }
+
+        if (
+            IERC20(eventDetails.paymentToken).balanceOf(msg.sender) <
+            additionalStakeNeeded
+        ) {
+            revert LibErrors.InsufficientStakeAmount();
+        }
+
+        // deadline of 30 minutes from now to prevent stale signatures
+        uint256 deadline = block.timestamp + 30 minutes;
+
+        // Check deadline is valid (must be in the future)
+        if (deadline < block.timestamp) {
+            revert LibErrors.ExpiredDeadline();
+        }
+
+        // Use permit for approval
+        try
+            IERC20Permit(eventDetails.paymentToken).permit(
                 msg.sender,
-                eventDetails.expectedAttendees,
-                LibTypes.TicketType.PAID,
-                _ticketFee
-            );
-
-            // Subtract any stake already provided
-            uint256 existingStake = s.stakedAmounts[_eventId];
-            uint256 additionalStakeNeeded = 0;
-
-            if (requiredStake > existingStake) {
-                additionalStakeNeeded = requiredStake - existingStake;
-            }
-
-            if (
-                IERC20(eventDetails.paymentToken).balanceOf(msg.sender) <
+                address(this),
+                additionalStakeNeeded,
+                deadline,
+                _sig.v,
+                _sig.r,
+                _sig.s
+            )
+        {
+            // Transfer the additional stake needed to the contract
+            IERC20(eventDetails.paymentToken).safeTransferFrom(
+                msg.sender,
+                address(this),
                 additionalStakeNeeded
-            ) {
-                revert LibErrors.InsufficientStakeAmount();
-            }
+            );
 
-            // deadline of 30 minutes from now to prevent stale signatures
-            uint256 deadline = block.timestamp + 30 minutes;
-
-            // Check deadline is valid (must be in the future)
-            if (deadline < block.timestamp) {
-                revert LibErrors.ExpiredDeadline();
-            }
-
-            // Use permit for approval
-            try
-                IERC20Permit(eventDetails.paymentToken).permit(
-                    msg.sender,
-                    address(this),
-                    additionalStakeNeeded,
-                    deadline,
-                    _v,
-                    _r,
-                    _s
-                )
-            {
-                // Transfer the additional stake needed to the contract
-                IERC20(eventDetails.paymentToken).safeTransferFrom(
-                    msg.sender,
-                    address(this),
-                    additionalStakeNeeded
-                );
-
-                emit IExtendedERC20.Transfer(
-                    msg.sender,
-                    address(this),
-                    additionalStakeNeeded
-                );
-            } catch {
-                revert LibErrors.PermitFailed();
-            }
-
-            // Update total stake
-            s.stakedAmounts[_eventId] += additionalStakeNeeded;
+            emit IExtendedERC20.Transfer(
+                msg.sender,
+                address(this),
+                additionalStakeNeeded
+            );
+        } catch {
+            revert LibErrors.PermitFailed();
         }
 
-        if (_category == LibTypes.PaidTicketCategory.REGULAR) {
-            if (tickets.hasRegularTicket) {
-                revert LibErrors.RegularTicketsAlreadyCreated();
-            }
-            if (tickets.hasVIPTicket && _ticketFee >= tickets.vipTicketFee) {
-                revert LibErrors.RegularTicketMustCostLessThanVipTicket();
-            }
-
-            address newTicketNFT = _createTicket(
-                _eventId,
-                _ticketFee,
-                _ticketUri,
-                "REGULAR"
-            );
-
-            tickets.hasRegularTicket = true;
-            tickets.regularTicketFee = _ticketFee;
-            tickets.regularTicketNFT = newTicketNFT;
-
-            s.totalTicketCreated++;
-
-            emit LibEvents.TicketCreated(
-                _eventId,
-                msg.sender,
-                newTicketNFT,
-                _ticketFee,
-                "REGULAR"
-            );
-            return true;
-        } else if (_category == LibTypes.PaidTicketCategory.VIP) {
-            if (tickets.hasVIPTicket) {
-                revert LibErrors.VIPTicketsAlreadyCreated();
-            }
-            if (
-                tickets.hasRegularTicket &&
-                _ticketFee <= tickets.regularTicketFee
-            ) {
-                revert LibErrors.VipFeeTooLow();
-            }
-
-            address newTicketNFT = _createTicket(
-                _eventId,
-                _ticketFee,
-                _ticketUri,
-                "VIP"
-            );
-
-            tickets.hasVIPTicket = true;
-            tickets.vipTicketFee = _ticketFee;
-            tickets.vipTicketNFT = newTicketNFT;
-
-            s.totalTicketCreated++;
-
-            emit LibEvents.TicketCreated(
-                _eventId,
-                msg.sender,
-                newTicketNFT,
-                _ticketFee,
-                "VIP"
-            );
-            return true;
-        }
+        // Update total stake
+        s.stakedAmounts[_params.eventId] += additionalStakeNeeded;
     }
 
     /**
      * @dev Purchase ticket using ERC20 tokens with permit
-     * @param _eventId The ID of the event
-     * @param _category The category of ticket to purchase
-     * @param _v Signature v component
-     * @param _r Signature r component
-     * @param _s Signature s component
+     * @param _params The ticket purchase parameters
+     * @param _sig Signature parameters
      */
     function purchaseTicketWithPermit(
-        uint256 _eventId,
-        LibTypes.PaidTicketCategory _category,
-        uint8 _v,
-        bytes32 _r,
-        bytes32 _s
+        TicketPurchaseParams calldata _params,
+        SignatureParams calldata _sig
     ) external nonReentrant {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
 
-        LibTypes.EventDetails storage eventDetails = s.events[_eventId];
-        if (s.hasRegistered[msg.sender][_eventId]) {
+        LibTypes.EventDetails storage eventDetails = s.events[_params.eventId];
+        if (s.hasRegistered[msg.sender][_params.eventId]) {
             revert LibErrors.AlreadyRegistered();
         }
         if (eventDetails.endDate < block.timestamp) {
@@ -320,29 +383,75 @@ contract TicketManagementFacet is ReentrancyGuard {
         }
 
         // Check if event was confirmed as scam
-        if (s.eventConfirmedScam[_eventId]) {
+        if (s.eventConfirmedScam[_params.eventId]) {
             revert LibErrors.EventConfirmedAscam_TicketsUnavailable();
         }
 
-        LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
-        address ticketNFTAddr;
-        uint256 requiredFee;
+        (address ticketNFTAddr, uint256 requiredFee) = _getTicketDetails(
+            _params
+        );
+
+        if (ticketNFTAddr == address(0))
+            revert LibErrors.TicketContractNotSet();
+
+        // Process payment if needed
+        if (requiredFee > 0) {
+            _processTicketPayment(eventDetails.paymentToken, requiredFee, _sig);
+        }
+
+        // Mint NFT ticket
+        ITicketNFT ticketContract = ITicketNFT(ticketNFTAddr);
+        ticketContract.safeMint(msg.sender);
+
+        // Update event details
+        eventDetails.userRegCount += 1;
+        s.hasRegistered[msg.sender][_params.eventId] = true;
+
+        // Update organizer revenue balance
+        s.organiserRevBal[eventDetails.organiser][
+            _params.eventId
+        ] += requiredFee;
+
+        // Add buyer to attendance list
+        s.eventAttendees[_params.eventId].push(msg.sender);
+
+        s.totalPurchasedTicket += 1;
+
+        emit LibEvents.TicketPurchased(
+            _params.eventId,
+            msg.sender,
+            requiredFee
+        );
+    }
+
+    /**
+     * @dev Get ticket details for purchase
+     * @param _params Ticket purchase parameters
+     * @return ticketNFTAddr Address of the ticket NFT contract
+     * @return requiredFee Fee required for the ticket
+     */
+    function _getTicketDetails(
+        TicketPurchaseParams calldata _params
+    ) internal view returns (address ticketNFTAddr, uint256 requiredFee) {
+        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
+        LibTypes.EventDetails storage eventDetails = s.events[_params.eventId];
+        LibTypes.TicketTypes storage tickets = s.eventTickets[_params.eventId];
 
         if (eventDetails.ticketType == LibTypes.TicketType.FREE) {
-            if (_category != LibTypes.PaidTicketCategory.NONE) {
+            if (_params.category != LibTypes.PaidTicketCategory.NONE) {
                 revert LibErrors.FreeTicketForFreeEventOnly();
             }
             ticketNFTAddr = eventDetails.ticketNFTAddr;
             requiredFee = 0;
         } else {
             // Handle paid tickets
-            if (_category == LibTypes.PaidTicketCategory.REGULAR) {
+            if (_params.category == LibTypes.PaidTicketCategory.REGULAR) {
                 if (!tickets.hasRegularTicket)
                     revert LibErrors.RegularTicketsNotAvailable();
 
                 ticketNFTAddr = tickets.regularTicketNFT;
                 requiredFee = tickets.regularTicketFee;
-            } else if (_category == LibTypes.PaidTicketCategory.VIP) {
+            } else if (_params.category == LibTypes.PaidTicketCategory.VIP) {
                 if (!tickets.hasVIPTicket)
                     revert LibErrors.VIPTicketsNotAvailable();
 
@@ -351,60 +460,53 @@ contract TicketManagementFacet is ReentrancyGuard {
             } else {
                 revert LibErrors.InvalidTicketCategory();
             }
-
-            // Set deadline of 30 minutes from now to prevent stale signatures
-            uint256 deadline = block.timestamp + 30 minutes;
-
-            // Check deadline is valid
-            if (deadline < block.timestamp) {
-                revert LibErrors.ExpiredDeadline();
-            }
-
-            // Use permit for approval
-            try
-                IERC20Permit(eventDetails.paymentToken).permit(
-                    msg.sender,
-                    address(this),
-                    requiredFee,
-                    deadline,
-                    _v,
-                    _r,
-                    _s
-                )
-            {
-                // Transfer ERC20 tokens from buyer to escrow contract
-                if (requiredFee > 0) {
-                    IERC20(eventDetails.paymentToken).safeTransferFrom(
-                        msg.sender,
-                        address(this),
-                        requiredFee
-                    );
-                }
-            } catch {
-                revert LibErrors.PermitFailed();
-            }
         }
 
-        if (ticketNFTAddr == address(0))
-            revert LibErrors.TicketContractNotSet();
+        return (ticketNFTAddr, requiredFee);
+    }
 
-        // Mint NFT ticket
-        ITicket_NFT ticketContract = ITicket_NFT(ticketNFTAddr);
-        ticketContract.safeMint(msg.sender);
+    /**
+     * @dev Process ticket payment with permit
+     * @param _paymentToken Payment token address
+     * @param _requiredFee Fee to be paid
+     * @param _sig Signature parameters
+     */
+    function _processTicketPayment(
+        address _paymentToken,
+        uint256 _requiredFee,
+        SignatureParams calldata _sig
+    ) internal {
+        // Set deadline of 30 minutes from now to prevent stale signatures
+        uint256 deadline = block.timestamp + 30 minutes;
 
-        // Update event details
-        eventDetails.userRegCount += 1;
-        s.hasRegistered[msg.sender][_eventId] = true;
+        // Check deadline is valid
+        if (deadline < block.timestamp) {
+            revert LibErrors.ExpiredDeadline();
+        }
 
-        // Update organizer revenue balance
-        s.organiserRevBal[eventDetails.organiser][_eventId] += requiredFee;
-
-        // Add buyer to attendance list
-        s.eventAttendees[_eventId].push(msg.sender);
-
-        s.totalPurchasedTicket += 1;
-
-        emit LibEvents.TicketPurchased(_eventId, msg.sender, requiredFee);
+        // Use permit for approval
+        try
+            IERC20Permit(_paymentToken).permit(
+                msg.sender,
+                address(this),
+                _requiredFee,
+                deadline,
+                _sig.v,
+                _sig.r,
+                _sig.s
+            )
+        {
+            // Transfer ERC20 tokens from buyer to escrow contract
+            if (_requiredFee > 0) {
+                IERC20(_paymentToken).safeTransferFrom(
+                    msg.sender,
+                    address(this),
+                    _requiredFee
+                );
+            }
+        } catch {
+            revert LibErrors.PermitFailed();
+        }
     }
 
     /**
