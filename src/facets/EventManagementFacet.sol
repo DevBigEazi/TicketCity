@@ -23,55 +23,59 @@ contract EventManagementFacet is ReentrancyGuard {
     using LibErrors for *;
     using SafeERC20 for IERC20;
 
+    // createEventWithPermit args grouped to reduce stack variables
+    struct EventCreateParams {
+        string title;
+        string desc;
+        string imageUri;
+        string location;
+        uint256 startDate;
+        uint256 endDate;
+        uint256 expectedAttendees;
+        LibTypes.TicketType ticketType;
+        IERC20Permit paymentToken;
+    }
+
+    struct SignatureParams {
+        uint8 v;
+        bytes32 r;
+        bytes32 s;
+    }
+
     /**
      * @dev Creates a new event with staking requirement using ERC20Permit for approval
-     * @param _title Event title
-     * @param _desc Event description
-     * @param _imageUri URI of the event image
-     * @param _location Event location
-     * @param _startDate Event start timestamp
-     * @param _endDate Event end timestamp
-     * @param _expectedAttendees Expected number of attendees
-     * @param _ticketType Type of tickets for the event (FREE or PAID)
-     * @param _paymentToken The ERC20 token used for payment (must support permit)
-     * @param _v Signature v component
-     * @param _r Signature r component
-     * @param _s Signature s component
+     * @param _params Struct containing event parameters
+     * @param _sig Struct containing signature parameters
      * @return The ID of the newly created event
      */
     function createEventWithPermit(
-        string memory _title,
-        string memory _desc,
-        string memory _imageUri,
-        string memory _location,
-        uint256 _startDate,
-        uint256 _endDate,
-        uint256 _expectedAttendees,
-        LibTypes.TicketType _ticketType,
-        IERC20Permit _paymentToken,
-        uint8 _v,
-        bytes32 _r,
-        bytes32 _s
+        EventCreateParams calldata _params,
+        SignatureParams calldata _sig
     ) external nonReentrant returns (uint256) {
         LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
 
-        // Input validation (same as original)
+        // Input validation
         if (msg.sender == address(0)) revert LibErrors.AddressZeroDetected();
-        if (bytes(_title).length == 0 || bytes(_desc).length == 0) {
+        if (
+            bytes(_params.title).length == 0 || bytes(_params.desc).length == 0
+        ) {
             revert LibErrors.EmptyTitleOrDescription();
         }
         // Check title, desc and location length
         if (
-            bytes(_title).length > 32 ||
-            bytes(_desc).length > 32 ||
-            bytes(_location).length > 32
+            bytes(_params.title).length > 32 ||
+            bytes(_params.desc).length > 32 ||
+            bytes(_params.location).length > 32
         ) {
             revert LibErrors.ReasonTooLong();
         }
-        if (_startDate >= _endDate || _startDate < block.timestamp) {
+        if (
+            _params.startDate >= _params.endDate ||
+            _params.startDate < block.timestamp
+        ) {
             revert LibErrors.InvalidDates();
         }
-        if (_expectedAttendees <= 5) {
+        if (_params.expectedAttendees <= 5) {
             revert LibErrors.ExpectedAttendeesIsTooLow();
         }
 
@@ -81,10 +85,10 @@ contract EventManagementFacet is ReentrancyGuard {
         }
 
         // Check if the token is supported
-        if (_ticketType == LibTypes.TicketType.PAID) {
+        if (_params.ticketType == LibTypes.TicketType.PAID) {
             if (
-                address(_paymentToken) != address(0) &&
-                !s.supportedTokens[address(_paymentToken)]
+                address(_params.paymentToken) != address(0) &&
+                !s.supportedTokens[address(_params.paymentToken)]
             ) {
                 revert LibErrors.TokenNotSupported();
             }
@@ -92,66 +96,106 @@ contract EventManagementFacet is ReentrancyGuard {
 
         // For PAID events, we'll collect a minimal initial stake
         uint256 initialStake = 0;
-        if (_ticketType == LibTypes.TicketType.PAID) {
-            initialStake = LibConstants.INITIAL_STAKE_AMOUNT;
-
-            // Check if the payment token is valid
-            if (
-                IERC20(address(_paymentToken)).balanceOf(msg.sender) <
-                initialStake
-            ) {
-                revert LibErrors.InsufficientInitialStake();
-            }
-
-            // deadline of 30 minutes from now to prevent stale signatures
-            uint256 deadline = block.timestamp + 30 minutes;
-
-            // Check deadline is valid (must be in the future)
-            if (deadline < block.timestamp) {
-                revert LibErrors.ExpiredDeadline();
-            }
-
-            // handle potential failures (front-running protection)
-            try
-                _paymentToken.permit(
-                    msg.sender,
-                    address(this),
-                    initialStake,
-                    deadline,
-                    _v,
-                    _r,
-                    _s
-                )
-            {
-                // Convert to IERC20 to use SafeERC20 functions
-                IERC20 token = IERC20(address(_paymentToken));
-
-                // Transfer the initial stake to the contract
-                token.safeTransferFrom(msg.sender, address(this), initialStake);
-
-                emit IExtendedERC20.Transfer(
-                    msg.sender,
-                    address(this),
-                    initialStake
-                );
-            } catch {
-                // If permit fails, fall back to requiring approval via regular approve
-                revert LibErrors.PermitFailed();
-            }
+        if (_params.ticketType == LibTypes.TicketType.PAID) {
+            initialStake = _handlePaidEventStaking(_params.paymentToken, _sig);
         }
 
         uint256 eventId = s.totalEventOrganised + 1;
         s.totalEventOrganised = eventId;
 
+        _createEventDetails(s, eventId, _params, initialStake);
+
+        emit LibEvents.EventCreated(
+            msg.sender,
+            address(_params.paymentToken),
+            eventId,
+            _params.ticketType,
+            initialStake
+        );
+
+        return eventId;
+    }
+
+    /**
+     * @dev Handles staking for paid events
+     * @param _paymentToken The token used for staking
+     * @param _sig Signature parameters
+     * @return initialStake The amount staked
+     */
+    function _handlePaidEventStaking(
+        IERC20Permit _paymentToken,
+        SignatureParams calldata _sig
+    ) private returns (uint256) {
+        uint256 initialStake = LibConstants.INITIAL_STAKE_AMOUNT;
+
+        // Check if the payment token is valid
+        if (
+            IERC20(address(_paymentToken)).balanceOf(msg.sender) < initialStake
+        ) {
+            revert LibErrors.InsufficientInitialStake();
+        }
+
+        // deadline of 30 minutes from now to prevent stale signatures
+        uint256 deadline = block.timestamp + 30 minutes;
+
+        // Check deadline is valid (must be in the future)
+        if (deadline < block.timestamp) {
+            revert LibErrors.ExpiredDeadline();
+        }
+
+        // handle potential failures (front-running protection)
+        try
+            _paymentToken.permit(
+                msg.sender,
+                address(this),
+                initialStake,
+                deadline,
+                _sig.v,
+                _sig.r,
+                _sig.s
+            )
+        {
+            // Convert to IERC20 to use SafeERC20 functions
+            IERC20 token = IERC20(address(_paymentToken));
+
+            // Transfer the initial stake to the contract
+            token.safeTransferFrom(msg.sender, address(this), initialStake);
+
+            emit IExtendedERC20.Transfer(
+                msg.sender,
+                address(this),
+                initialStake
+            );
+        } catch {
+            // If permit fails, fall back to requiring approval via regular approve
+            revert LibErrors.PermitFailed();
+        }
+
+        return initialStake;
+    }
+
+    /**
+     * @dev Creates event details in storage
+     * @param s AppStorage reference
+     * @param eventId The event ID
+     * @param _params Event parameters
+     * @param initialStake Initial stake amount
+     */
+    function _createEventDetails(
+        LibAppStorage.AppStorage storage s,
+        uint256 eventId,
+        EventCreateParams calldata _params,
+        uint256 initialStake
+    ) private {
         LibTypes.EventDetails storage eventDetails = s.events[eventId];
-        eventDetails.title = _title;
-        eventDetails.imageUri = _imageUri;
-        eventDetails.location = _location;
-        eventDetails.startDate = _startDate;
-        eventDetails.endDate = _endDate;
-        eventDetails.expectedAttendees = _expectedAttendees;
-        eventDetails.ticketType = _ticketType;
-        eventDetails.paymentToken = address(_paymentToken);
+        eventDetails.title = _params.title;
+        eventDetails.imageUri = _params.imageUri;
+        eventDetails.location = _params.location;
+        eventDetails.startDate = _params.startDate;
+        eventDetails.endDate = _params.endDate;
+        eventDetails.expectedAttendees = _params.expectedAttendees;
+        eventDetails.ticketType = _params.ticketType;
+        eventDetails.paymentToken = address(_params.paymentToken);
 
         // Store initial stake amount
         s.stakedAmounts[eventId] = initialStake;
@@ -162,7 +206,7 @@ contract EventManagementFacet is ReentrancyGuard {
         eventDetails.ticketFee = 0;
         eventDetails.ticketNFTAddr = address(0);
 
-        if (_ticketType == LibTypes.TicketType.PAID) {
+        if (_params.ticketType == LibTypes.TicketType.PAID) {
             eventDetails.paidTicketCategory = LibTypes.PaidTicketCategory.NONE;
         } else {
             eventDetails.paidTicketCategory = LibTypes.PaidTicketCategory.NONE;
@@ -170,16 +214,6 @@ contract EventManagementFacet is ReentrancyGuard {
 
         eventDetails.organiser = msg.sender;
         s.allEvents.push(eventDetails);
-
-        emit LibEvents.EventCreated(
-            msg.sender,
-            address(_paymentToken),
-            eventId,
-            _ticketType,
-            initialStake
-        );
-
-        return eventId;
     }
 
     /**
