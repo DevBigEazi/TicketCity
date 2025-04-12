@@ -59,15 +59,6 @@ library LibDiamond {
         }
     }
 
-    function appStorage() internal pure returns (LibAppStorage.AppStorage storage) {
-        LibAppStorage.AppStorage storage store;
-        // bytes32 position = keccak256("ticket.city.app.storage");
-        assembly {
-            store.slot := 0
-        }
-        return store;
-    }
-
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
 
     function setContractOwner(address _newOwner) internal {

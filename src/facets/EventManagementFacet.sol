@@ -19,6 +19,8 @@ import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Permit.sol";
  * @dev Handles all event creation and management functionality
  */
 contract EventManagementFacet is ReentrancyGuard {
+    LibAppStorage.AppStorage internal s;
+
     using LibTypes for *;
     using LibErrors for *;
     using SafeERC20 for IERC20;
@@ -52,8 +54,6 @@ contract EventManagementFacet is ReentrancyGuard {
         EventCreateParams calldata _params,
         SignatureParams calldata _sig
     ) external nonReentrant returns (uint256) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
         // Input validation
         if (msg.sender == address(0)) revert LibErrors.AddressZeroDetected();
         if (
@@ -103,7 +103,7 @@ contract EventManagementFacet is ReentrancyGuard {
         uint256 eventId = s.totalEventOrganised + 1;
         s.totalEventOrganised = eventId;
 
-        _createEventDetails(s, eventId, _params, initialStake);
+        _createEventDetails(eventId, _params, initialStake);
 
         emit LibEvents.EventCreated(
             msg.sender,
@@ -176,13 +176,11 @@ contract EventManagementFacet is ReentrancyGuard {
 
     /**
      * @dev Creates event details in storage
-     * @param s AppStorage reference
      * @param eventId The event ID
      * @param _params Event parameters
      * @param initialStake Initial stake amount
      */
     function _createEventDetails(
-        LibAppStorage.AppStorage storage s,
         uint256 eventId,
         EventCreateParams calldata _params,
         uint256 initialStake
@@ -224,7 +222,6 @@ contract EventManagementFacet is ReentrancyGuard {
     function getEvent(
         uint256 _eventId
     ) public view returns (LibTypes.EventDetails memory eventDetails) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         return eventDetails = s.events[_eventId];
     }
 
@@ -236,8 +233,6 @@ contract EventManagementFacet is ReentrancyGuard {
     function getEventsWithoutTicketsByUser(
         address _user
     ) external view returns (uint256[] memory) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
         if (_user == address(0)) revert LibErrors.AddressZeroDetected();
 
         // First get all events by the user
@@ -319,8 +314,6 @@ contract EventManagementFacet is ReentrancyGuard {
     function getEventsWithTicketByUser(
         address _user
     ) external view returns (uint256[] memory) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
         if (_user == address(0)) revert LibErrors.AddressZeroDetected();
 
         uint256 count = 0;
@@ -386,8 +379,6 @@ contract EventManagementFacet is ReentrancyGuard {
      * @return Array of valid event IDs with available tickets
      */
     function getAllValidEvents() external view returns (uint256[] memory) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
         uint256 count = 0;
 
         // First pass: count valid events

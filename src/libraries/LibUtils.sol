@@ -14,11 +14,23 @@ import "../interfaces/ITicketNFT.sol";
  */
 library LibUtils {
     /**
+     * @dev Returns the AppStorage struct
+     */
+    function appStorage()
+        internal
+        pure
+        returns (LibAppStorage.AppStorage storage s)
+    {
+        assembly {
+            s.slot := 0
+        }
+    }
+
+    /**
      * @dev function to restrict withdrawal function access to the contract owner
      */
     function onlyOwner() internal view {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-        if (msg.sender != s.owner) revert LibErrors.OnlyOwnerAllowed();
+        LibDiamond.enforceIsContractOwner();
     }
 
     /**
@@ -26,7 +38,7 @@ library LibUtils {
      * @param _eventId The ID of the event to validate
      */
     function _validateEventAndOrganizer(uint256 _eventId) internal view {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
+        LibAppStorage.AppStorage storage s = appStorage();
 
         if (_eventId == 0 || _eventId > s.totalEventOrganised) {
             revert LibErrors.EventDoesNotExist();
@@ -47,7 +59,7 @@ library LibUtils {
         address _user,
         uint256 _eventId
     ) internal view returns (bool) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
+        LibAppStorage.AppStorage storage s = appStorage();
         LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
 
         if (!tickets.hasVIPTicket || tickets.vipTicketNFT == address(0)) {
@@ -73,7 +85,7 @@ library LibUtils {
         address _user,
         uint256 _eventId
     ) internal view returns (bool) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
+        LibAppStorage.AppStorage storage s = appStorage();
         LibTypes.TicketTypes storage tickets = s.eventTickets[_eventId];
 
         if (
@@ -101,7 +113,7 @@ library LibUtils {
         address _user,
         uint256 _eventId
     ) internal view returns (string memory) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
+        LibAppStorage.AppStorage storage s = appStorage();
 
         if (!s.hasRegistered[_user][_eventId]) {
             return "NONE";
@@ -140,7 +152,7 @@ library LibUtils {
         LibTypes.TicketType _ticketType,
         uint256 _estimatedTicketFee
     ) internal view returns (uint256) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
+        LibAppStorage.AppStorage storage s = appStorage();
 
         // Blacklisted organizers cannot create events
         if (s.blacklistedOrganizers[_organiser]) {

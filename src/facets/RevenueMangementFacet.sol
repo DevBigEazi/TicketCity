@@ -17,6 +17,8 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  * @dev Handles revenue management, release, refunds, and scam event processing
  */
 contract RevenueManagementFacet is ReentrancyGuard {
+    LibAppStorage.AppStorage internal s;
+
     using SafeERC20 for IERC20;
     using LibTypes for *;
     using LibErrors for *;
@@ -30,7 +32,6 @@ contract RevenueManagementFacet is ReentrancyGuard {
     function handleIsFlaggingThresholdMet(
         uint256 _eventId
     ) internal view returns (bool) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // If no one registered, can't be flagged
@@ -63,7 +64,6 @@ contract RevenueManagementFacet is ReentrancyGuard {
      * @dev Releases event revenue to the organizer in ERC20 tokens
      */
     function releaseRevenue(uint256 _eventId) external nonReentrant {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Existing validations remain the same
@@ -73,15 +73,18 @@ contract RevenueManagementFacet is ReentrancyGuard {
         if (block.timestamp <= eventDetails.endDate) {
             revert LibErrors.EventNotEnded();
         }
-        if (s.revenueReleased[_eventId])
+        if (s.revenueReleased[_eventId]) {
             revert LibErrors.RevenueAlreadyReleased();
-        if (s.eventConfirmedScam[_eventId])
+        }
+        if (s.eventConfirmedScam[_eventId]) {
             revert LibErrors.EventConfirmedAsScam();
+        }
 
         uint256 revenue = s.organiserRevBal[eventDetails.organiser][_eventId];
         if (revenue == 0) revert LibErrors.NoRevenueToRelease();
-        if (msg.sender != eventDetails.organiser)
+        if (msg.sender != eventDetails.organiser) {
             revert LibErrors.NotEventOrganizer();
+        }
 
         // Calculate attendance rate
         uint256 attendanceRate = eventDetails.userRegCount > 0
@@ -97,10 +100,13 @@ contract RevenueManagementFacet is ReentrancyGuard {
         if (
             attendanceRate < LibConstants.MINIMUM_ATTENDANCE_RATE &&
             !isAfterFlaggingPeriod
-        ) revert LibErrors.LowAttendanceRateWaitingPeriod();
+        ) {
+            revert LibErrors.LowAttendanceRateWaitingPeriod();
+        }
 
-        if (isFlaggingThresholdMet)
+        if (isFlaggingThresholdMet) {
             revert LibErrors.EventHasBeenFlaggedByAttendees();
+        }
 
         // Calculate and deduct platform fees
         uint256 serviceFee;
@@ -154,15 +160,17 @@ contract RevenueManagementFacet is ReentrancyGuard {
      * @dev Claim refund for scam event in ERC20 tokens
      */
     function claimScamEventRefund(uint256 _eventId) external nonReentrant {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
-        if (!s.eventConfirmedScam[_eventId])
+        if (!s.eventConfirmedScam[_eventId]) {
             revert LibErrors.EventNotConfirmedAsScam();
-        if (!s.hasRegistered[msg.sender][_eventId])
+        }
+        if (!s.hasRegistered[msg.sender][_eventId]) {
             revert LibErrors.NotTicketBuyer();
-        if (s.hasClaimedRefund[msg.sender][_eventId])
+        }
+        if (s.hasClaimedRefund[msg.sender][_eventId]) {
             revert LibErrors.RefundAlreadyClaimed();
+        }
 
         uint256 refundAmount = 0;
         IERC20 paymentToken = IERC20(eventDetails.paymentToken);
@@ -193,8 +201,9 @@ contract RevenueManagementFacet is ReentrancyGuard {
         if (totalRefund > 0) {
             // Check if enough balance in contract
             uint256 contractBalance = paymentToken.balanceOf(address(this));
-            if (contractBalance < totalRefund)
+            if (contractBalance < totalRefund) {
                 revert LibErrors.InsufficientContractBalance();
+            }
 
             // Transfer refund
             paymentToken.safeTransfer(msg.sender, totalRefund);
@@ -217,8 +226,6 @@ contract RevenueManagementFacet is ReentrancyGuard {
         address _to,
         uint24 _tokenIndex
     ) external payable nonReentrant returns (bool) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
         // Validate the caller
         LibUtils.onlyOwner();
 
@@ -229,16 +236,18 @@ contract RevenueManagementFacet is ReentrancyGuard {
         if (s.platformRevenue == 0) revert LibErrors.NoRevenueToWithdraw();
 
         // Validate token index
-        if (s.supportedTokensList.length == 0)
+        if (s.supportedTokensList.length == 0) {
             revert LibErrors.TokenNotSupported();
+        }
         address paymentToken = s.supportedTokensList[_tokenIndex];
 
         // Check contract balance
         uint256 contractBalance = IERC20(paymentToken).balanceOf(address(this));
 
         // Ensure we maintain the minimum required balance
-        if (contractBalance <= LibConstants.MIN_PLATFORM_BALANCE)
+        if (contractBalance <= LibConstants.MIN_PLATFORM_BALANCE) {
             revert LibErrors.InsufficientContractBalance();
+        }
 
         // Calculate withdrawable amount (total balance minus minimum required)
         uint256 withdrawableAmount = contractBalance -
@@ -269,7 +278,6 @@ contract RevenueManagementFacet is ReentrancyGuard {
     function checkReleaseStatus(
         uint256 _eventId
     ) external view returns (bool canRelease, uint8 reason) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Check if event exists and has ended
@@ -353,7 +361,6 @@ contract RevenueManagementFacet is ReentrancyGuard {
         view
         returns (bool canRelease, uint256 attendanceRate, uint256 revenue)
     {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         if (
@@ -407,8 +414,6 @@ contract RevenueManagementFacet is ReentrancyGuard {
             bool[] memory hasRequestedReview
         )
     {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
         // Count events requiring manual review
         uint256 count = 0;
         for (uint256 i = 1; i <= s.totalEventOrganised; i++) {
@@ -533,7 +538,6 @@ contract RevenueManagementFacet is ReentrancyGuard {
         view
         returns (bool canClaim, uint256 refundAmount, bool alreadyClaimed)
     {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Check if event is confirmed as scam
