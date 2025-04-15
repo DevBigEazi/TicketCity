@@ -37,7 +37,7 @@ contract TokenManagementFacet {
      */
     function addSupportedToken(
         address _tokenAddress
-    ) external payable returns (bool success) {
+    ) external returns (bool success) {
         // Validate the caller
         LibUtils.onlyOwner();
 
@@ -86,7 +86,7 @@ contract TokenManagementFacet {
      */
     function removeSupportedToken(
         address _tokenAddress
-    ) external payable returns (bool success) {
+    ) external returns (bool success) {
         // Validate the caller
         LibUtils.onlyOwner();
 
