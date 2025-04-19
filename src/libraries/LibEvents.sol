@@ -21,37 +21,37 @@ library LibEvents {
      * @dev Emitted when a new ticket is created
      */
     event TicketCreated(
-        uint256 indexed eventId,
-        address indexed creator,
-        address ticketNFTAddr,
-        uint256 ticketFee,
-        string ticketType
+        uint256 indexed _eventId,
+        address indexed _creator,
+        address _ticketNFTAddr,
+        uint256 _ticketFee,
+        string _ticketType
     );
 
     /**
      * @dev Emitted when a ticket is purchased
      */
     event TicketPurchased(
-        uint256 indexed eventId,
-        address indexed buyer,
-        uint256 price
+        uint256 indexed _eventId,
+        address indexed _buyer,
+        uint256 _price
     );
 
     /**
      * @dev Emitted when an attendee is verified
      */
     event AttendeeVerified(
-        uint256 indexed eventId,
-        address indexed attendee,
-        uint256 timestamp
+        uint256 indexed _eventId,
+        address indexed _attendee,
+        uint256 _timestamp
     );
 
     /**
      * @dev Emitted when a verification code is set for an event
      */
     event VerificationCodeSet(
-        uint256 indexed eventId,
-        bytes32 verificationCode
+        uint256 indexed _eventId,
+        bytes32 _verificationCode
     );
 
     /**
