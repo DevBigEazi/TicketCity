@@ -55,10 +55,5 @@ contract TicketCityDiamond {
         }
     }
 
-    //immutable function example
-    function example() public pure returns (string memory) {
-        return "THIS IS AN EXAMPLE OF AN IMMUTABLE FUNCTION";
-    }
-
     receive() external payable {}
 }

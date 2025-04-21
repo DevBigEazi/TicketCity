@@ -9,15 +9,6 @@ import "./LibTypes.sol";
  */
 library LibAppStorage {
     struct AppStorage {
-        // Core contract variables
-        address payable owner;
-        uint256 totalEventOrganised;
-        uint256 totalTicketCreated;
-        uint256 totalPurchasedTicket;
-        uint256 platformRevenue;
-        uint256 organiserTotalRevenue;
-        // All events array
-        LibTypes.EventDetails[] allEvents;
         // Mappings for events and tickets
         mapping(uint256 => LibTypes.EventDetails) events;
         mapping(address => mapping(uint256 => bool)) hasRegistered;
@@ -51,5 +42,14 @@ library LibAppStorage {
         // Supported tokens system
         mapping(address => bool) supportedTokens;
         address[] supportedTokensList;
+        // Core contract variables
+        address payable owner;
+        uint256 totalEventOrganised;
+        uint256 totalTicketCreated;
+        uint256 totalPurchasedTicket;
+        uint256 platformRevenue;
+        uint256 organiserTotalRevenue;
+        // All events array
+        LibTypes.EventDetails[] allEvents;
     }
 }

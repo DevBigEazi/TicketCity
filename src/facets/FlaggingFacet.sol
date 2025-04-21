@@ -15,6 +15,8 @@ import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
  * @dev Handles event flagging system with simplified approach
  */
 contract FlaggingFacet is ReentrancyGuard {
+    LibAppStorage.AppStorage internal s;
+
     using LibTypes for *;
     using LibErrors for *;
 
@@ -24,7 +26,6 @@ contract FlaggingFacet is ReentrancyGuard {
      * @param _reason Brief text explaining reason for flagging
      */
     function flagEvent(uint256 _eventId, string calldata _reason) external {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Check if event exists and has ended
@@ -105,7 +106,6 @@ contract FlaggingFacet is ReentrancyGuard {
             uint256 requiredFlagCount
         )
     {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Get basic counts
@@ -155,7 +155,6 @@ contract FlaggingFacet is ReentrancyGuard {
         uint256 _eventId,
         string calldata _explanation
     ) external {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Check if caller is the organizer

@@ -22,6 +22,8 @@ import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
  * @dev Handles ticket creation, purchase, and verification functionality
  */
 contract TicketManagementFacet is ReentrancyGuard {
+    LibAppStorage.AppStorage internal s;
+
     using LibTypes for *;
     using LibErrors for *;
     using SafeERC20 for IERC20;
@@ -56,8 +58,6 @@ contract TicketManagementFacet is ReentrancyGuard {
         uint256 _eventId,
         bytes32 _verificationCode
     ) internal {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
         LibUtils._validateEventAndOrganizer(_eventId);
 
         s.eventVerificationCodes[_eventId] = _verificationCode;
@@ -79,8 +79,6 @@ contract TicketManagementFacet is ReentrancyGuard {
         string memory _ticketUri,
         string memory _ticketType
     ) internal returns (address) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Generate a random salt using some current block informations and sender address
@@ -118,8 +116,6 @@ contract TicketManagementFacet is ReentrancyGuard {
         TicketCreateParams calldata _params,
         SignatureParams calldata _sig
     ) external nonReentrant returns (bool success_) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
         LibUtils._validateEventAndOrganizer(_params.eventId);
 
         // Check if organizer is blacklisted
@@ -167,7 +163,6 @@ contract TicketManagementFacet is ReentrancyGuard {
     function _createFreeTicket(
         TicketCreateParams calldata _params
     ) internal returns (bool success_) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         LibTypes.EventDetails storage eventDetails = s.events[_params.eventId];
 
         if (eventDetails.ticketType != LibTypes.TicketType.FREE) {
@@ -203,8 +198,6 @@ contract TicketManagementFacet is ReentrancyGuard {
         TicketCreateParams calldata _params,
         LibTypes.TicketTypes storage tickets
     ) internal returns (bool success_) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
         if (tickets.hasRegularTicket) {
             revert LibErrors.RegularTicketsAlreadyCreated();
         }
@@ -245,8 +238,6 @@ contract TicketManagementFacet is ReentrancyGuard {
         TicketCreateParams calldata _params,
         LibTypes.TicketTypes storage tickets
     ) internal returns (bool success_) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
         if (tickets.hasVIPTicket) {
             revert LibErrors.VIPTicketsAlreadyCreated();
         }
@@ -289,7 +280,6 @@ contract TicketManagementFacet is ReentrancyGuard {
         TicketCreateParams calldata _params,
         SignatureParams calldata _sig
     ) internal {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         LibTypes.EventDetails storage eventDetails = s.events[_params.eventId];
 
         // Calculate required stake based on ticket price
@@ -364,8 +354,6 @@ contract TicketManagementFacet is ReentrancyGuard {
         TicketPurchaseParams calldata _params,
         SignatureParams calldata _sig
     ) external nonReentrant {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
         LibTypes.EventDetails storage eventDetails = s.events[_params.eventId];
         if (s.hasRegistered[msg.sender][_params.eventId]) {
             revert LibErrors.AlreadyRegistered();
@@ -391,8 +379,9 @@ contract TicketManagementFacet is ReentrancyGuard {
             _params
         );
 
-        if (ticketNFTAddr == address(0))
+        if (ticketNFTAddr == address(0)) {
             revert LibErrors.TicketContractNotSet();
+        }
 
         // Process payment if needed
         if (requiredFee > 0) {
@@ -433,7 +422,6 @@ contract TicketManagementFacet is ReentrancyGuard {
     function _getTicketDetails(
         TicketPurchaseParams calldata _params
     ) internal view returns (address ticketNFTAddr, uint256 requiredFee) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         LibTypes.EventDetails storage eventDetails = s.events[_params.eventId];
         LibTypes.TicketTypes storage tickets = s.eventTickets[_params.eventId];
 
@@ -446,14 +434,16 @@ contract TicketManagementFacet is ReentrancyGuard {
         } else {
             // Handle paid tickets
             if (_params.category == LibTypes.PaidTicketCategory.REGULAR) {
-                if (!tickets.hasRegularTicket)
+                if (!tickets.hasRegularTicket) {
                     revert LibErrors.RegularTicketsNotAvailable();
+                }
 
                 ticketNFTAddr = tickets.regularTicketNFT;
                 requiredFee = tickets.regularTicketFee;
             } else if (_params.category == LibTypes.PaidTicketCategory.VIP) {
-                if (!tickets.hasVIPTicket)
+                if (!tickets.hasVIPTicket) {
                     revert LibErrors.VIPTicketsNotAvailable();
+                }
 
                 ticketNFTAddr = tickets.vipTicketNFT;
                 requiredFee = tickets.vipTicketFee;
@@ -520,8 +510,6 @@ contract TicketManagementFacet is ReentrancyGuard {
         bytes32 _verificationCode,
         bytes calldata _signature
     ) external {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
         LibTypes.EventDetails storage eventDetails = s.events[_eventId];
 
         // Validate event status
@@ -541,10 +529,12 @@ contract TicketManagementFacet is ReentrancyGuard {
         if (s.hasRegistered[msg.sender][_eventId]) {
             // Verify the provided verification code matches the one set for the event
             bytes32 eventCode = s.eventVerificationCodes[_eventId];
-            if (eventCode == bytes32(0))
+            if (eventCode == bytes32(0)) {
                 revert LibErrors.VerificationCodeNotSet();
-            if (eventCode != _verificationCode)
+            }
+            if (eventCode != _verificationCode) {
                 revert LibErrors.InvalidVerificationCode();
+            }
 
             // Create the message hash including the verification code to prove presence
             bytes32 messageHash = keccak256(
@@ -567,8 +557,9 @@ contract TicketManagementFacet is ReentrancyGuard {
             address recoveredSigner = ECDSA.recover(messageHash, _signature);
 
             // Verify the signature is from the attendee themselves
-            if (recoveredSigner != msg.sender)
+            if (recoveredSigner != msg.sender) {
                 revert LibErrors.InvalidSignature();
+            }
 
             // Mark attendee as verified
             s.isVerified[msg.sender][_eventId] = true;
@@ -594,8 +585,6 @@ contract TicketManagementFacet is ReentrancyGuard {
         uint256 _eventId,
         address _address
     ) external view returns (bool) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
         // check if they are registered
         if (!s.hasRegistered[_address][_eventId]) {
             return false;
@@ -613,8 +602,6 @@ contract TicketManagementFacet is ReentrancyGuard {
     function allEventsRegisteredForByAUser(
         address _user
     ) external view returns (uint256[] memory) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
         if (_user == address(0)) revert LibErrors.AddressZeroDetected();
 
         uint256 count = 0;
@@ -683,7 +670,6 @@ contract TicketManagementFacet is ReentrancyGuard {
             bool[] memory canClaimRefund
         )
     {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         uint256 count = 0;
 
         // First pass: count tickets owned by the caller

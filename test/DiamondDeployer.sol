@@ -50,9 +50,5 @@ contract DiamondDeployer is DiamondUtils, IDiamondCut {
         DiamondLoupeFacet(address(diamond)).facetAddresses();
     }
 
-    function diamondCut(
-        FacetCut[] calldata _diamondCut,
-        address _init,
-        bytes calldata _calldata
-    ) external override {}
+    function diamondCut(FacetCut[] calldata _diamondCut, address _init, bytes calldata _calldata) external override {}
 }

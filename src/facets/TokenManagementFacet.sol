@@ -13,6 +13,8 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
  * @dev Handles supported token management for the Ticket_City platform
  */
 contract TokenManagementFacet {
+    LibAppStorage.AppStorage internal s;
+
     using LibErrors for *;
     using LibUtils for *;
 
@@ -35,9 +37,7 @@ contract TokenManagementFacet {
      */
     function addSupportedToken(
         address _tokenAddress
-    ) external payable returns (bool success) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
+    ) external returns (bool success) {
         // Validate the caller
         LibUtils.onlyOwner();
 
@@ -86,9 +86,7 @@ contract TokenManagementFacet {
      */
     function removeSupportedToken(
         address _tokenAddress
-    ) external payable returns (bool success) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
-
+    ) external returns (bool success) {
         // Validate the caller
         LibUtils.onlyOwner();
 
@@ -125,7 +123,6 @@ contract TokenManagementFacet {
     function isTokenSupported(
         address _tokenAddress
     ) external view returns (bool isSupported) {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         return s.supportedTokens[_tokenAddress];
     }
 
@@ -138,7 +135,6 @@ contract TokenManagementFacet {
         view
         returns (address[] memory tokens)
     {
-        LibAppStorage.AppStorage storage s = LibDiamond.appStorage();
         return s.supportedTokensList;
     }
 }

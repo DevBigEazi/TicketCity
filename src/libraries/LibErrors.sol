@@ -61,7 +61,6 @@ library LibErrors {
     error InsufficientAllowance();
 
     // Token errors
-    error OnlyOwnerAllowed();
     error TokenAlreadySupported();
     error InvalidERC20Token();
 
